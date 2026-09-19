@@ -127,7 +127,11 @@ jobs:
           cp "telemetry/build/libs/andropilot-telemetry-$V.jar" "dist/andropilot-telemetry-$V.jar"
           cp "host/build/distributions/andropilot-host-$V.zip" "dist/andropilot-host-$V.zip"
           cp "demo/build/outputs/apk/release/demo-release.apk" "dist/andropilot-demo-$V.apk"
-          cp "agent/build/outputs/apk/release/agent-release.apk" "dist/andropilot-agent-$V.apk"
+          # andropilot-agent-release.apk, not agent-release.apk: AGP names the output after
+          # the GRADLE PROJECT name, not the directory. The project is :andropilot-agent in a
+          # folder called agent/, the same split as :andropilot-android in android/ two lines
+          # up. :demo is the odd one out only because its project name really is "demo".
+          cp "agent/build/outputs/apk/release/andropilot-agent-release.apk" "dist/andropilot-agent-$V.apk"
           echo "Release artifacts:"
           ls -la dist
 
