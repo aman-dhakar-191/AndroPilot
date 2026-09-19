@@ -4,9 +4,9 @@
     <!--
       QUERY_ALL_PACKAGES is declared so `launch_app` can resolve an arbitrary package's
       launcher activity on API 30+. An integrating app that only drives a known set of
-      apps should remove this with `tools:node="remove"` and declare a <queries> block
-      listing those packages instead -- it is the narrower and more privacy-respecting
-      option, and the SDK reports APP_UNAVAILABLE cleanly when a package is not visible.
+      apps should remove this with tools:node="remove" and declare a &lt;queries&gt; block
+      listing those packages instead. That is narrower and more privacy-respecting, and
+      the SDK still reports APP_UNAVAILABLE cleanly when a package is not visible.
     -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 

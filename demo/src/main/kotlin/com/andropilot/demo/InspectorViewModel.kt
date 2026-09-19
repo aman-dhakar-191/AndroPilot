@@ -57,37 +57,37 @@ class InspectorViewModel : ViewModel() {
         _state.value = _state.value.copy(typeText = value)
     }
 
-    fun observe() = run(AgentAction.Observe())
+    fun observe() = dispatch(AgentAction.Observe())
 
-    fun observeWithVision() = run(AgentAction.Observe(includeVisual = true))
+    fun observeWithVision() = dispatch(AgentAction.Observe(includeVisual = true))
 
-    fun screenshot() = run(AgentAction.Screenshot())
+    fun screenshot() = dispatch(AgentAction.Screenshot())
 
-    fun back() = run(AgentAction.PressKey(SystemKey.BACK))
+    fun back() = dispatch(AgentAction.PressKey(SystemKey.BACK))
 
-    fun home() = run(AgentAction.PressKey(SystemKey.HOME))
+    fun home() = dispatch(AgentAction.PressKey(SystemKey.HOME))
 
-    fun scrollDown() = run(AgentAction.Scroll(Direction.DOWN))
+    fun scrollDown() = dispatch(AgentAction.Scroll(Direction.DOWN))
 
-    fun scrollUp() = run(AgentAction.Scroll(Direction.UP))
+    fun scrollUp() = dispatch(AgentAction.Scroll(Direction.UP))
 
-    fun findElement() = selector()?.let { run(AgentAction.FindElement(it)) }
+    fun findElement() = selector()?.let { dispatch(AgentAction.FindElement(it)) }
 
-    fun click() = selector()?.let { run(AgentAction.Click(it)) }
+    fun click() = selector()?.let { dispatch(AgentAction.Click(it)) }
 
-    fun longPress() = selector()?.let { run(AgentAction.LongPress(it)) }
+    fun longPress() = selector()?.let { dispatch(AgentAction.LongPress(it)) }
 
-    fun typeText() = run(
+    fun typeText() = dispatch(
         AgentAction.TypeText(selector(), _state.value.typeText),
     )
 
-    fun clearText() = run(AgentAction.ClearText(selector()))
+    fun clearText() = dispatch(AgentAction.ClearText(selector()))
 
     fun waitForSelector() = selector()?.let {
-        run(AgentAction.WaitFor(UiCondition.ElementPresent(it), timeoutMs = 5_000))
+        dispatch(AgentAction.WaitFor(UiCondition.ElementPresent(it), timeoutMs = 5_000))
     }
 
-    fun launch(packageName: String) = run(AgentAction.LaunchApp(packageName))
+    fun launch(packageName: String) = dispatch(AgentAction.LaunchApp(packageName))
 
     /** A multi-step sequence, to demonstrate that failures stop the plan. */
     fun runSequence(packageName: String) {
@@ -123,7 +123,7 @@ class InspectorViewModel : ViewModel() {
     private fun selector(): Selector? =
         _state.value.selectorText.takeIf { it.isNotBlank() }?.let(Selector::text)
 
-    private fun run(action: AgentAction) {
+    private fun dispatch(action: AgentAction) {
         viewModelScope.launch {
             _state.value = _state.value.copy(busy = true)
             publish(session.execute(action))
