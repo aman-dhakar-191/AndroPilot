@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      QUERY_ALL_PACKAGES is declared so `launch_app` can resolve an arbitrary package's
+      launcher activity on API 30+. An integrating app that only drives a known set of
+      apps should remove this with `tools:node="remove"` and declare a <queries> block
+      listing those packages instead -- it is the narrower and more privacy-respecting
+      option, and the SDK reports APP_UNAVAILABLE cleanly when a package is not visible.
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
+    <application>
+        <service
+            android:name="com.andropilot.android.AndroPilotAccessibilityService"
+            android:exported="false"
+            android:label="@string/andropilot_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/andropilot_accessibility_service" />
+        </service>
+    </application>
+</manifest>
