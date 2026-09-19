@@ -368,17 +368,18 @@ class SessionTest {
     }
 
     @Test
-    fun `an approved confirmation lets the action through exactly once`() = runTest {
+    fun `an approved confirmation runs the action, and covers only that one`() = runTest {
         val screen = FakeScreens.confirmDialog()
         screen.clickHandler = { s, e -> if (e.id == "confirm") s.remove("dialog_title") }
         val driver = FakeUiDriver(screen)
         val s = session(driver, config(policy = DefaultSafetyPolicy()))
 
-        val first = assertInstanceOf<ActionResult.Failure>(s.click("Delete"))
-        s.resolveConfirmation(first.pendingConfirmation!!.id, ConfirmationOutcome.APPROVED)
-        assertInstanceOf<ActionResult.Success>(s.click("Delete"))
+        val blocked = assertInstanceOf<ActionResult.Failure>(s.click("Delete"))
+        // Approving runs it; the caller does not reissue the action.
+        val ran = s.resolveConfirmation(blocked.pendingConfirmation!!.id, ConfirmationOutcome.APPROVED)
+        assertTrue(ran!!.isSuccess)
 
-        // The approval is single-use: a second attempt must ask again.
+        // The approval covered that one action, not a standing permission.
         val third = assertInstanceOf<ActionResult.Failure>(s.click("Delete"))
         assertEquals(FailureReason.CONFIRMATION_REQUIRED, third.reason)
     }

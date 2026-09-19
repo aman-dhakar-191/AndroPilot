@@ -82,7 +82,8 @@ public class DefaultAndroPilotSession(
     @Volatile private var closed = false
 
     private val pending = LinkedHashMap<String, PendingConfirmation>()
-    private val approved = HashSet<String>()
+    /** Granted approvals, by confirmation id, with the time each was granted. */
+    private val approved = HashMap<String, Long>()
 
     override val events: SharedFlow<AgentEvent> get() = _events.asSharedFlow()
 
@@ -131,13 +132,22 @@ public class DefaultAndroPilotSession(
     override fun pendingConfirmations(): List<PendingConfirmation> =
         synchronized(pending) { pending.values.toList() }
 
-    override suspend fun resolveConfirmation(id: String, outcome: ConfirmationOutcome) {
-        synchronized(pending) {
-            pending.remove(id) ?: return
-            if (outcome == ConfirmationOutcome.APPROVED) approved += id
+    override suspend fun resolveConfirmation(
+        id: String,
+        outcome: ConfirmationOutcome,
+    ): ActionResult? {
+        val confirmation = synchronized(pending) {
+            val held = pending.remove(id) ?: return null
+            if (outcome == ConfirmationOutcome.APPROVED) approved[id] = clock()
+            held
         }
         emit(AgentEvent.ConfirmationResolved(id, outcome, clock()))
         log(LogLevel.INFO, "Confirmation $id resolved: $outcome")
+        if (outcome != ConfirmationOutcome.APPROVED) return null
+        // Run what was approved, so a host does not have to know to reissue it. execute()
+        // re-observes and re-resolves, which is what keeps the approval from being spent on
+        // a screen that moved while the human was deciding.
+        return execute(confirmation.action)
     }
 
     override suspend fun close() {
@@ -971,7 +981,11 @@ public class DefaultAndroPilotSession(
         )
         is PolicyDecision.RequireConfirmation -> {
             val key = confirmationKey(action, target)
-            val alreadyApproved = synchronized(pending) { approved.remove(key) }
+            val alreadyApproved = synchronized(pending) {
+                val cutoff = clock() - config.confirmationValidityMs
+                approved.entries.removeAll { it.value < cutoff }
+                approved.remove(key) != null
+            }
             if (alreadyApproved) {
                 null
             } else {

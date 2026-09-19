@@ -15,7 +15,7 @@ Bodies should say *why*, not restate the diff — the diff is already in the com
 ## Build
 
 ```bash
-./gradlew :andropilot-core:build            # core + 167 tests; needs NO Android SDK
+./gradlew :andropilot-core:build            # core + 173 tests; needs NO Android SDK
 ./gradlew :andropilot-android:assembleRelease   # needs an Android SDK
 ./gradlew :demo:assembleRelease
 ```
@@ -61,6 +61,11 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   could contain screen content, including the prose the SDK composes from a screen (match
   reasons, diff summaries, failure messages, confirmation descriptions), not just the
   snapshot.
+- **Approving a confirmation RUNS the action; it is re-run, not resumed.** A human takes
+  seconds to answer and the screen can move, so re-running re-resolves the selector against
+  what is on screen now. An approval covers one action on one target, is consumed on use, and
+  expires after `confirmationValidityMs` -- an unredeemed approval must not authorise an
+  identical action later.
 - **Ambiguity is reported, not guessed.** Two equally good matches produce `AMBIGUOUS_TARGET`
   with both candidates.
 

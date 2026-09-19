@@ -107,16 +107,19 @@ class InspectorViewModel : ViewModel() {
 
     fun resolve(id: String, outcome: ConfirmationOutcome) {
         viewModelScope.launch {
-            session.resolveConfirmation(id, outcome)
-            _state.value = _state.value.copy(
-                pending = session.pendingConfirmations(),
-                lastSummary = "Confirmation $id: ${outcome.name.lowercase()}. " +
-                    if (outcome == ConfirmationOutcome.APPROVED) {
-                        "Repeat the action to run it."
-                    } else {
-                        "The action stays blocked."
-                    },
-            )
+            _state.value = _state.value.copy(busy = true)
+            // Approving runs the action; only a rejection has nothing to report.
+            val result = session.resolveConfirmation(id, outcome)
+            if (result != null) {
+                publish(result, header = "Approved $id, then ran it:")
+            } else {
+                _state.value = _state.value.copy(
+                    busy = false,
+                    pending = session.pendingConfirmations(),
+                    trace = session.trace().reversed(),
+                    lastSummary = "Confirmation $id rejected. The action did not run.",
+                )
+            }
         }
     }
 
