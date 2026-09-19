@@ -64,8 +64,13 @@ Three build decisions look like bugs and are not. Do not "fix" them:
 
 - **All demo builds are signed with `keystore/andropilot-dev.keystore`**, checked in on
   purpose. AGP's default `debug` config generates a key per machine, so every CI runner
-  produced a differently-signed APK and none could update another. That key protects nothing;
-  override it with `ANDROPILOT_KEYSTORE` and friends for a real release.
+  produced a differently-signed APK and none could update another.
+- **That key must be replaced before the repository goes public.** For a sideloaded app the
+  signing key is the only thing standing between a user and an APK that installs over theirs
+  and inherits an accessibility grant. Both workflows already switch to a real key when the
+  `ANDROPILOT_KEYSTORE_BASE64` secret and its companions are set; absent them they fall back
+  to the development key. Build and release must always use the SAME key, or CI artifacts and
+  release artifacts cannot replace each other.
 - **The demo's versionCode packing is duplicated** in `demo/build.gradle.kts` and
   `AppUpdater.versionCodeOf`. If they diverge, a newer release looks older than what is
   installed and the in-app update is silently never offered.

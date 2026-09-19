@@ -90,6 +90,27 @@ installs over an older one. **Builds from before that key existed were each sign
 throwaway key**, so Android refuses to replace them — "App not installed as package conflicts
 with an existing package". Uninstall the old copy once and the problem does not recur.
 
+> **Before making this repository public, swap that key.** For an app distributed as an APK,
+> the signing key is the only thing Android checks before letting one build replace another.
+> A key in a public repository lets anyone produce an APK that installs over yours and
+> inherits whatever the user has granted it — for this app, an accessibility service that can
+> read every screen.
+>
+> The build and release workflows already handle this: set the repository secrets
+> `ANDROPILOT_KEYSTORE_BASE64`, `ANDROPILOT_KEYSTORE_PASSWORD`, `ANDROPILOT_KEY_ALIAS` and
+> `ANDROPILOT_KEY_PASSWORD`, and both switch to it automatically. No code change, and no
+> secret means the development key is used as before.
+>
+> ```bash
+> keytool -genkeypair -v -keystore release.keystore -alias andropilot \
+>   -keyalg RSA -keysize 2048 -validity 10950
+> base64 -w0 release.keystore          # paste into ANDROPILOT_KEYSTORE_BASE64
+> ```
+>
+> Changing keys means one manual uninstall, which is why it is worth doing before anyone
+> else has it installed. Keep the keystore backed up: lose it and no future build can update
+> an installed app.
+
 Once installed, the app updates itself: **App updates → Check for updates**. It downloads the
 newest release APK and hands it to Android's installer, which asks you to confirm. It never
 installs silently, and nothing in the app automates that dialog.
