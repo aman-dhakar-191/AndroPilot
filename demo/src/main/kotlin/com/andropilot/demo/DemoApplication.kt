@@ -3,6 +3,7 @@ package com.andropilot.demo
 import android.app.Application
 import com.andropilot.android.AndroPilot
 import com.andropilot.android.LogcatEventListener
+import com.andropilot.devtools.update.AppUpdates
 import com.andropilot.core.observe.LogLevel
 import com.andropilot.core.observe.RecordingOptions
 import com.andropilot.core.observe.TraceRecorder
@@ -27,6 +28,10 @@ class DemoApplication : Application() {
         // is reachable with `adb pull`, which makes it the practical home for a trace a
         // developer wants to read on a workstation.
         traceFile = File(getExternalFilesDir(null) ?: filesDir, TRACE_FILE_NAME)
+
+        // Point the updater at this repository's releases. The library has no default: one
+        // would silently check someone else's releases and look like "no update available".
+        AppUpdates.configure("aman-dhakar-191/AndroPilot")
 
         AndroPilot.initialize(
             context = this,

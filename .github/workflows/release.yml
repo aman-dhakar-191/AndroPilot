@@ -42,6 +42,33 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      # Signs with a real key when the repository provides one, and falls back to the
+      # checked-in development key when it does not.
+      #
+      # Both workflows use identical logic on purpose: an APK from CI and an APK from a
+      # release signed with different keys cannot replace each other, which surfaces to a
+      # user as "App not installed as package conflicts with an existing package".
+      - name: Configure signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROPILOT_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROPILOT_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROPILOT_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROPILOT_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -n "${KEYSTORE_BASE64:-}" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            {
+              echo "ANDROPILOT_KEYSTORE=$RUNNER_TEMP/release.keystore"
+              echo "ANDROPILOT_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+              echo "ANDROPILOT_KEY_ALIAS=$KEY_ALIAS"
+              echo "ANDROPILOT_KEY_PASSWORD=$KEY_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the repository's release key."
+          else
+            echo "No ANDROPILOT_KEYSTORE_BASE64 secret; using the checked-in development key."
+          fi
+
       - name: Resolve the version
         id: version
         run: |
@@ -67,6 +94,7 @@ jobs:
             -Pandropilot.version=${{ steps.version.outputs.value }} \
             :andropilot-core:jar \
             :andropilot-android:assembleRelease \
+            :andropilot-devtools:assembleRelease \
             :demo:assembleRelease \
             --stacktrace
 
@@ -87,6 +115,7 @@ jobs:
           # quietly publishing a release with nothing in it.
           cp "core/build/libs/andropilot-core-$V.jar" "dist/andropilot-core-$V.jar"
           cp "android/build/outputs/aar/andropilot-android-release.aar" "dist/andropilot-android-$V.aar"
+          cp "devtools/build/outputs/aar/andropilot-devtools-release.aar" "dist/andropilot-devtools-$V.aar"
           cp "demo/build/outputs/apk/release/demo-release.apk" "dist/andropilot-demo-$V.apk"
           echo "Release artifacts:"
           ls -la dist
@@ -106,6 +135,9 @@ jobs:
             - `andropilot-core-*.jar` — the pure-Kotlin perception, matching and action
               layer. No Android dependency; usable in JVM tests and in a remote agent host.
             - `andropilot-android-*.aar` — the AccessibilityService-backed driver.
+            - `andropilot-devtools-*.aar` — optional sideload updater. Separate on purpose:
+              it needs network access and, in the consuming app, an install permission that
+              the SDK itself never requests.
             - `andropilot-demo-*.apk` — the inspector app, for validating the SDK on a
               device. Debug-signed; not for distribution.
 

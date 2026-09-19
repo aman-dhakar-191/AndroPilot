@@ -36,6 +36,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.andropilot.android.AndroPilot
 import com.andropilot.core.model.UiElement
 import com.andropilot.core.safety.ConfirmationOutcome
+import com.andropilot.devtools.update.UpdateState
+import com.andropilot.devtools.update.UpdateViewModel
 
 /**
  * A developer tool, not a product.
@@ -197,6 +199,8 @@ private fun InspectorScreen(viewModel: InspectorViewModel = viewModel()) {
                 }
             }
 
+            item { UpdateCard() }
+
             item { TraceCard() }
 
             item {
@@ -307,6 +311,96 @@ private fun ElementRow(element: UiElement, highlighted: Boolean) {
                     "actions=${element.actions.joinToString(",") { it.name.lowercase() }}",
                 style = MaterialTheme.typography.labelSmall,
             )
+        }
+    }
+}
+
+/**
+ * Fetches the newest release and hands it to the system installer.
+ *
+ * Present because sideloading each CI build by hand is the slowest part of testing on a real
+ * device. The install itself is always confirmed by the user in Android's own dialog.
+ */
+@Composable
+private fun UpdateCard(viewModel: UpdateViewModel = viewModel()) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("App updates", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Installed: ${viewModel.installedVersion}",
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.labelSmall,
+            )
+
+            when (val s = state) {
+                is UpdateState.Idle ->
+                    Button(onClick = viewModel::check) { Text("Check for updates") }
+
+                is UpdateState.Checking ->
+                    Text("Checking…", style = MaterialTheme.typography.bodySmall)
+
+                is UpdateState.UpToDate -> {
+                    Text(
+                        "Up to date (${s.current}).",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedButton(onClick = viewModel::check) { Text("Check again") }
+                }
+
+                is UpdateState.Available -> {
+                    Text(
+                        "Version ${s.release.version} is available (${s.release.sizeBytes / 1024} KB).",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Button(onClick = { viewModel.download(s.release) }) { Text("Download") }
+                }
+
+                is UpdateState.Downloading -> Text(
+                    "Downloading ${s.release.version}… ${s.percent}%",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
+                is UpdateState.ReadyToInstall -> {
+                    Text(
+                        "Version ${s.release.version} is ready. Android will ask you to confirm.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Button(onClick = { viewModel.install(s) }) { Text("Install") }
+                }
+
+                is UpdateState.AwaitingUserConfirmation -> Text(
+                    "Waiting for you to confirm the install.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
+                is UpdateState.NeedsPermission -> {
+                    Text(
+                        s.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Button(onClick = viewModel::grantInstallPermission) {
+                        Text("Open permission settings")
+                    }
+                }
+
+                is UpdateState.Failed -> {
+                    Text(
+                        s.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    OutlinedButton(onClick = viewModel::check) { Text("Try again") }
+                }
+            }
+
+            val cached = viewModel.downloadedBytes()
+            if (cached > 0) {
+                TextButton(onClick = viewModel::clearDownloads) {
+                    Text("Delete downloaded updates (${cached / 1024} KB)")
+                }
+            }
         }
     }
 }
