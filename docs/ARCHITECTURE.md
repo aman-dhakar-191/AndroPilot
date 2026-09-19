@@ -69,7 +69,7 @@ Everything that decides *whether automation is correct* is above the `UiDriver` 
 no Android dependency. That is the single most consequential decision in the project, and it
 buys three things:
 
-1. **Testability.** 153 unit tests covering matching, ambiguity, gesture geometry, change
+1. **Testability.** 162 unit tests covering matching, ambiguity, gesture geometry, change
    detection, retry, fallback and safety run in seconds on any JVM with no emulator.
 2. **A real extension point.** A remote-control transport, a second platform, or a record/
    replay harness is a new `UiDriver` implementation, not a fork.

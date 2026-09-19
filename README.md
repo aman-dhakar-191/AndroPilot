@@ -41,7 +41,7 @@ landed on the right thing and that something happened. So the whole reliability 
 (element matching, gesture geometry, change detection, settle waiting, retries, safety
 classification) lives in **`andropilot-core`**, a pure Kotlin/JVM module with no Android
 dependency, behind a single `UiDriver` interface. Android is one implementation of that
-interface. This is why the SDK's logic has 153 unit tests that run in seconds with no
+interface. This is why the SDK's logic has 162 unit tests that run in seconds with no
 emulator, and why a future remote-control transport is a new `UiDriver` rather than a
 rewrite.
 

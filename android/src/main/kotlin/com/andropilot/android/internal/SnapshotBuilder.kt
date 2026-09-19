@@ -4,6 +4,7 @@ import android.graphics.Rect
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import com.andropilot.core.model.Bounds
+import com.andropilot.core.model.ElementRetention
 import com.andropilot.core.model.ElementRole
 import com.andropilot.core.model.ScreenMetrics
 import com.andropilot.core.model.UiAction
@@ -21,9 +22,10 @@ import com.andropilot.core.model.UiSnapshot
  *  2. **Unbounded and cyclic trees.** Some apps (notably WebViews and badly-behaved custom
  *     views) present very deep or self-referential hierarchies. Depth and node count are
  *     both capped, and visited nodes are tracked.
- *  3. **Noise.** A raw tree carries many leaf nodes that are invisible, zero-sized, or
- *     carry neither text nor behaviour. Those are dropped. Interior nodes are always kept,
- *     even when uninformative, because dropping one would orphan its children.
+ *  3. **Noise.** A raw tree carries many nodes that are invisible, zero-sized, or carry
+ *     neither text nor behaviour. [ElementRetention] decides which of those to drop, and it
+ *     is applied after the subtree has been walked: a container is only worth keeping if
+ *     something beneath it survived.
  *
  * The builder is pure with respect to the SDK: it reads the platform and returns core model
  * types, so nothing downstream ever touches an Android class.
@@ -115,11 +117,8 @@ internal class SnapshotBuilder(
         val childIds = ArrayList<String>(node.childCount.coerceAtMost(64))
         val element = toElement(node, path, parentId, depth, metrics, childIds)
 
-        // A leaf that cannot be seen, read or acted on tells an agent nothing and costs
-        // tokens. Interior nodes are never dropped: their ids are the parent links their
-        // children depend on, and their bounds are what `within` selectors scope against.
-        if (node.childCount == 0 && !isInformative(element)) return
-
+        // Reserve this node's slot before recursing, so children land after it in traversal
+        // order. Whether it earns the slot cannot be decided until the subtree is filtered.
         val insertAt = out.size
         out.add(element)
 
@@ -133,29 +132,22 @@ internal class SnapshotBuilder(
                 val childPath = "$path.$i"
                 val before = out.size
                 traverse(child, path, depth + 1, metrics, out, counter, warnings, childPath)
+                // A child that dropped itself leaves the list unchanged, and so is not linked.
                 if (out.size > before) childIds += childPath
             } finally {
                 @Suppress("DEPRECATION")
                 runCatching { child.recycle() }
             }
         }
-        // `childIds` is a mutable list that was also handed to `toElement`, so it is copied
-        // here rather than aliased: a UiElement is documented as an immutable value and is
-        // shared with callers, including across serialization.
-        out[insertAt] = element.copy(childIds = childIds.toList())
-    }
 
-    /**
-     * Whether a childless node is worth reporting.
-     *
-     * Size and visibility are checked first and are not negotiable: a node with no area, or
-     * one off-screen, cannot be perceived or acted on. A resource id does not rescue it --
-     * real hierarchies are full of zero-sized `ViewStub`s and collapsed bars that carry an
-     * id and nothing else, and every one of them costs an agent a line of context.
-     */
-    private fun isInformative(element: UiElement): Boolean {
-        if (!element.visible || element.bounds.isEmpty) return false
-        return element.label != null || element.isActionable || element.resourceId != null
+        if (!ElementRetention.shouldKeep(element, hasSurvivingChildren = childIds.isNotEmpty())) {
+            // Nothing survived below it, so its slot is still the last one: removing it here
+            // cannot disturb anything already emitted.
+            out.removeAt(insertAt)
+            return
+        }
+
+        out[insertAt] = element.copy(childIds = childIds.toList())
     }
 
     private fun toElement(

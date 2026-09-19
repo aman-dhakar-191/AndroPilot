@@ -15,7 +15,7 @@ Bodies should say *why*, not restate the diff — the diff is already in the com
 ## Build
 
 ```bash
-./gradlew :andropilot-core:build            # core + 153 tests; needs NO Android SDK
+./gradlew :andropilot-core:build            # core + 162 tests; needs NO Android SDK
 ./gradlew :andropilot-android:assembleRelease   # needs an Android SDK
 ./gradlew :demo:assembleRelease
 ```
@@ -80,6 +80,13 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   the dependency. The module declares `INTERNET` but deliberately NOT
   `REQUEST_INSTALL_PACKAGES` -- a library manifest merges into every consumer, and no app
   should inherit an install permission it did not ask for.
+
+- **Node retention is decided AFTER the subtree is walked**, by
+  `ElementRetention.shouldKeep(element, hasSurvivingChildren)`. Judging a container by its
+  live child count keeps the ones that convey nothing: a scrolled-away list arrives as
+  `[1220,284][1220,2397]` and a collapsed bar as `[0,2712][0,2712]`, both with children that
+  were themselves all filtered away. The rule lives in core so it can be unit-tested;
+  `SnapshotBuilder` only walks the tree.
 
 ## Gotchas discovered the hard way
 
