@@ -136,6 +136,36 @@ session.execute(
 `ScrollUntil` stops early when the content stops moving, so an unreachable target fails in a
 second or two rather than burning the full step budget.
 
+## Running with nobody watching
+
+A confirmation and a denial differ only when someone is there to answer. With no one at the
+device, `RequireConfirmation` is a block that never clears, and the agent finds that out by
+timing out.
+
+```kotlin
+SessionConfig(policy = DefaultSafetyPolicy.unattended())
+```
+
+Never asks. Runs navigation and ordinary state changes, and refuses anything sensitive
+outright with `BLOCKED_BY_POLICY` and a message naming the risk. That reason is not
+transient, so the retry loop does not grind on it and an agent can re-plan instead.
+
+Lower the ceiling when even ordinary changes are too much:
+
+```kotlin
+DefaultSafetyPolicy.unattended(denyAtOrAbove = RiskLevel.MUTATING)   // navigation only
+```
+
+`permissive()` also never asks — and also lets an unattended agent tap "Delete account" or
+"Pay". The ceiling is the whole difference between them.
+
+| Policy | Asks | Sensitive actions |
+|---|---|---|
+| `unattended()` | never | refused |
+| `DefaultSafetyPolicy()` (the default) | on sensitive | confirmed |
+| `strict()` | on any side effect | confirmed |
+| `permissive()` | never | allowed |
+
 ## Handling confirmations
 
 ```kotlin

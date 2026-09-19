@@ -85,6 +85,15 @@ public fun interface SafetyPolicy {
 public class DefaultSafetyPolicy(
     /** Actions at or above this level require host confirmation. */
     private val confirmAtOrAbove: RiskLevel = RiskLevel.SENSITIVE,
+    /**
+     * Actions at or above this level are refused outright, without asking.
+     *
+     * For a session nobody is watching. Asking and denying differ only when someone is
+     * there to answer: with no one at the device a confirmation is a block that never
+     * clears, and the agent learns that only by timing out. A denial says so immediately
+     * and names why. Null, the default, never denies on risk alone.
+     */
+    private val denyAtOrAbove: RiskLevel? = null,
     /** Intent actions the host is willing to let an agent fire. Empty denies all intents. */
     private val allowedIntentActions: Set<String> = DEFAULT_ALLOWED_INTENTS,
     /** Packages the agent may drive. Empty means "any". */
@@ -124,10 +133,14 @@ public class DefaultSafetyPolicy(
 
         val reasons = ArrayList<String>(2)
         val risk = classify(action, snapshot, target, reasons)
-        return if (risk.atLeast(confirmAtOrAbove)) {
-            PolicyDecision.RequireConfirmation(risk, reasons)
-        } else {
-            PolicyDecision.Allow(risk)
+        return when {
+            denyAtOrAbove != null && risk.atLeast(denyAtOrAbove) -> PolicyDecision.Deny(
+                "This action is classified ${risk.name.lowercase()} and the policy refuses " +
+                    "anything at or above ${denyAtOrAbove.name.lowercase()} without a human " +
+                    "present." + reasons.joinToString(prefix = " ", separator = " "),
+            )
+            risk.atLeast(confirmAtOrAbove) -> PolicyDecision.RequireConfirmation(risk, reasons)
+            else -> PolicyDecision.Allow(risk)
         }
     }
 
@@ -300,6 +313,26 @@ public class DefaultSafetyPolicy(
 
         /** A policy that confirms anything with a side effect. */
         public fun strict(): SafetyPolicy = DefaultSafetyPolicy(confirmAtOrAbove = RiskLevel.MUTATING)
+
+        /**
+         * For a session running with nobody at the device.
+         *
+         * Never asks, because there is no one to ask. Runs navigation and ordinary state
+         * changes, and refuses anything at or above [denyAtOrAbove] outright rather than
+         * raising a confirmation that will never be answered.
+         *
+         * The ceiling is the point. [permissive] would also never ask, and would also let an
+         * unattended agent tap "Delete account" or "Pay"; this draws a line the agent cannot
+         * cross while nobody is watching, and says so in the failure when it tries.
+         */
+        public fun unattended(
+            denyAtOrAbove: RiskLevel = RiskLevel.SENSITIVE,
+        ): SafetyPolicy = DefaultSafetyPolicy(
+            // Never reached: denial is evaluated first and at the same or a lower
+            // threshold, so anything that would have been confirmed is refused instead.
+            confirmAtOrAbove = RiskLevel.SENSITIVE,
+            denyAtOrAbove = denyAtOrAbove,
+        )
     }
 }
 
