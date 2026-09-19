@@ -828,6 +828,9 @@ public class DefaultAndroPilotSession(
             .map { e -> e.copy(childIds = e.childIds.filter { it in keep }) }
         return snapshot.copy(
             elements = filtered,
+            // Dropped elements must lose their handles too, or the driver would still act on
+            // an id the agent can no longer see in the snapshot.
+            nodeHandles = snapshot.nodeHandles.filterKeys { it in keep },
             warnings = snapshot.warnings +
                 "The hierarchy was truncated from ${snapshot.elements.size} to ${filtered.size} elements.",
         )

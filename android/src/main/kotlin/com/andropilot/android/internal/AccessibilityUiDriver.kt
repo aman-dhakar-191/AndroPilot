@@ -35,6 +35,9 @@ import kotlin.coroutines.resume
  * Everything platform-specific lives here: node traversal, gesture dispatch, screenshots,
  * app launching. It holds no policy and no retry logic -- those belong to the session, which
  * is testable without a device.
+ *
+ * Elements carry short ids; the tree path each one resolves to lives in
+ * [UiSnapshot.nodeHandles], which this driver writes and reads and nothing else interprets.
  */
 internal class AccessibilityUiDriver(
     private val appContext: Context,
@@ -183,19 +186,19 @@ internal class AccessibilityUiDriver(
     // ---- Semantic interaction ---------------------------------------------------------
 
     override suspend fun performClick(snapshot: UiSnapshot, elementId: String): DriverOutcome =
-        onNode(elementId) { it.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
+        onNode(snapshot, elementId) { it.performAction(AccessibilityNodeInfo.ACTION_CLICK) }
 
     override suspend fun performLongClick(snapshot: UiSnapshot, elementId: String): DriverOutcome =
-        onNode(elementId) { it.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK) }
+        onNode(snapshot, elementId) { it.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK) }
 
     override suspend fun focus(snapshot: UiSnapshot, elementId: String): DriverOutcome =
-        onNode(elementId) {
+        onNode(snapshot, elementId) {
             it.performAction(AccessibilityNodeInfo.ACTION_FOCUS) ||
                 it.performAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS)
         }
 
     override suspend fun setText(snapshot: UiSnapshot, elementId: String, text: String): DriverOutcome =
-        onNode(elementId) { node ->
+        onNode(snapshot, elementId) { node ->
             val args = Bundle().apply {
                 putCharSequence(
                     AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE,
@@ -209,7 +212,7 @@ internal class AccessibilityUiDriver(
         snapshot: UiSnapshot,
         elementId: String,
         direction: Direction,
-    ): DriverOutcome = onNode(elementId) { node ->
+    ): DriverOutcome = onNode(snapshot, elementId) { node ->
         // ACTION_SCROLL_FORWARD means "towards the end of the content", which is down for a
         // vertical list and right for a horizontal one. The direction-to-action mapping is
         // therefore the same for DOWN/RIGHT and for UP/LEFT.
@@ -373,10 +376,22 @@ internal class AccessibilityUiDriver(
      * important correctness property of this class.
      */
     private suspend fun onNode(
+        snapshot: UiSnapshot,
         elementId: String,
         body: (AccessibilityNodeInfo) -> Boolean,
     ): DriverOutcome = withContext(io) {
         val svc = service()
+
+        // Only ids this driver issued can be acted on. A caller-supplied string now resolves
+        // to nothing instead of being walked as a path, so an agent cannot name a node the
+        // SDK never reported.
+        val path = snapshot.nodeHandles[elementId]
+            ?: return@withContext DriverOutcome.Rejected(
+                DriverErrorKind.STALE_NODE,
+                "Element '$elementId' is not part of snapshot '${snapshot.snapshotId}'. " +
+                    "Observe the screen again and use an id from the new snapshot.",
+            )
+
         val root = svc.rootInActiveWindow
             ?: return@withContext DriverOutcome.Rejected(
                 DriverErrorKind.STALE_NODE,
@@ -385,7 +400,7 @@ internal class AccessibilityUiDriver(
         var node: AccessibilityNodeInfo? = root
         val owned = ArrayList<AccessibilityNodeInfo>(8)
         try {
-            val indices = elementId.split('.').drop(1).mapNotNull(String::toIntOrNull)
+            val indices = path.split('.').drop(1).mapNotNull(String::toIntOrNull)
             for (index in indices) {
                 val current = node ?: break
                 if (index >= current.childCount) {

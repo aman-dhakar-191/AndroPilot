@@ -4,6 +4,7 @@ import android.graphics.Rect
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import com.andropilot.core.model.Bounds
+import com.andropilot.core.model.ElementRetention
 import com.andropilot.core.model.ElementRole
 import com.andropilot.core.model.ScreenMetrics
 import com.andropilot.core.model.UiAction
@@ -21,9 +22,10 @@ import com.andropilot.core.model.UiSnapshot
  *  2. **Unbounded and cyclic trees.** Some apps (notably WebViews and badly-behaved custom
  *     views) present very deep or self-referential hierarchies. Depth and node count are
  *     both capped, and visited nodes are tracked.
- *  3. **Noise.** A raw tree carries many leaf nodes that are invisible, zero-sized, or
- *     carry neither text nor behaviour. Those are dropped. Interior nodes are always kept,
- *     even when uninformative, because dropping one would orphan its children.
+ *  3. **Noise.** A raw tree carries many nodes that are invisible, zero-sized, or carry
+ *     neither text nor behaviour. [ElementRetention] decides which of those to drop, and it
+ *     is applied after the subtree has been walked: a container is only worth keeping if
+ *     something beneath it survived.
  *
  * The builder is pure with respect to the SDK: it reads the platform and returns core model
  * types, so nothing downstream ever touches an Android class.
@@ -49,6 +51,7 @@ internal class SnapshotBuilder(
         val elements = ArrayList<UiElement>(64)
         val warnings = ArrayList<String>(2)
         val counter = IntArray(1)
+        val handles = LinkedHashMap<String, String>()
 
         traverse(
             node = rootNode,
@@ -58,6 +61,7 @@ internal class SnapshotBuilder(
             out = elements,
             counter = counter,
             warnings = warnings,
+            handles = handles,
         )
 
         if (elements.isEmpty()) {
@@ -78,15 +82,21 @@ internal class SnapshotBuilder(
             hasDialog = hasDialog,
             keyboardVisible = keyboardVisible,
             warnings = warnings,
+            nodeHandles = handles,
         )
     }
 
     /**
-     * Depth-first walk that assigns ids by tree path.
+     * Depth-first walk, assigning each retained node a short id and recording the tree path
+     * the driver needs to find it again.
      *
-     * Path-based ids ("0.3.1") are stable for as long as the structure is, which lets the
-     * driver re-resolve an element by walking the same path instead of holding a node
-     * reference that goes stale the moment the app recomposes.
+     * Returns the id it assigned, or null when the node dropped itself. Callers use that to
+     * link children, so a dropped node is never referenced by its parent.
+     *
+     * The path stays index-based ("0.3.1") because that is what re-resolves against a live
+     * tree, and re-resolving is what makes a changed screen fail as STALE_ELEMENT instead of
+     * acting on whatever moved into the slot. It simply no longer doubles as the id: an
+     * agent reads ids on every line and gains nothing from the tree position.
      */
     private fun traverse(
         node: AccessibilityNodeInfo,
@@ -96,32 +106,36 @@ internal class SnapshotBuilder(
         out: MutableList<UiElement>,
         counter: IntArray,
         warnings: MutableList<String>,
+        handles: MutableMap<String, String>,
         path: String = "0",
-    ) {
+    ): String? {
         if (depth > maxDepth) {
             if (warnings.none { it.startsWith("The hierarchy exceeded") }) {
                 warnings += "The hierarchy exceeded $maxDepth levels and was truncated."
             }
-            return
+            return null
         }
         if (counter[0] >= maxNodes) {
             if (warnings.none { it.startsWith("More than") }) {
                 warnings += "More than $maxNodes nodes were present; the tree was truncated."
             }
-            return
+            return null
         }
         counter[0]++
 
+        // Derived from the node budget counter, which only ever increments. Reusing
+        // handles.size would also produce dense ids, but only because a dropped node is
+        // always the most recently added one -- an invariant a later edit could break
+        // silently. Gaps where a node dropped itself cost nothing; a collision would not.
+        val id = "e${counter[0]}"
         val childIds = ArrayList<String>(node.childCount.coerceAtMost(64))
-        val element = toElement(node, path, parentId, depth, metrics, childIds)
+        val element = toElement(node, id, parentId, depth, metrics, childIds)
 
-        // A leaf that cannot be seen, read or acted on tells an agent nothing and costs
-        // tokens. Interior nodes are never dropped: their ids are the parent links their
-        // children depend on, and their bounds are what `within` selectors scope against.
-        if (node.childCount == 0 && !isInformative(element)) return
-
+        // Reserve this node's slot before recursing, so children land after it in traversal
+        // order. Whether it earns the slot cannot be decided until the subtree is filtered.
         val insertAt = out.size
         out.add(element)
+        handles[id] = path
 
         for (i in 0 until node.childCount) {
             val child = try {
@@ -130,32 +144,37 @@ internal class SnapshotBuilder(
                 null
             } ?: continue
             try {
-                val childPath = "$path.$i"
-                val before = out.size
-                traverse(child, path, depth + 1, metrics, out, counter, warnings, childPath)
-                if (out.size > before) childIds += childPath
+                val childId = traverse(
+                    node = child,
+                    parentId = id,
+                    depth = depth + 1,
+                    metrics = metrics,
+                    out = out,
+                    counter = counter,
+                    warnings = warnings,
+                    handles = handles,
+                    path = "$path.$i",
+                )
+                if (childId != null) childIds += childId
             } finally {
                 @Suppress("DEPRECATION")
                 runCatching { child.recycle() }
             }
         }
+
+        if (!ElementRetention.shouldKeep(element, hasSurvivingChildren = childIds.isNotEmpty())) {
+            // Nothing survived below it, so its slot is still the last one: removing it here
+            // cannot disturb anything already emitted.
+            out.removeAt(insertAt)
+            handles.remove(id)
+            return null
+        }
+
         // `childIds` is a mutable list that was also handed to `toElement`, so it is copied
         // here rather than aliased: a UiElement is documented as an immutable value and is
         // shared with callers, including across serialization.
         out[insertAt] = element.copy(childIds = childIds.toList())
-    }
-
-    /**
-     * Whether a childless node is worth reporting.
-     *
-     * Size and visibility are checked first and are not negotiable: a node with no area, or
-     * one off-screen, cannot be perceived or acted on. A resource id does not rescue it --
-     * real hierarchies are full of zero-sized `ViewStub`s and collapsed bars that carry an
-     * id and nothing else, and every one of them costs an agent a line of context.
-     */
-    private fun isInformative(element: UiElement): Boolean {
-        if (!element.visible || element.bounds.isEmpty) return false
-        return element.label != null || element.isActionable || element.resourceId != null
+        return id
     }
 
     private fun toElement(
