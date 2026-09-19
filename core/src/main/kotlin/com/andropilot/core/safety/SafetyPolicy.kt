@@ -304,4 +304,5 @@ public class DefaultSafetyPolicy(
 }
 
 /** How a host answers a [com.andropilot.core.action.PendingConfirmation]. */
+@Serializable
 public enum class ConfirmationOutcome { APPROVED, REJECTED }

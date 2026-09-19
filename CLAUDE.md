@@ -15,7 +15,7 @@ Bodies should say *why*, not restate the diff — the diff is already in the com
 ## Build
 
 ```bash
-./gradlew :andropilot-core:build            # core + 127 tests; needs NO Android SDK
+./gradlew :andropilot-core:build            # core + 153 tests; needs NO Android SDK
 ./gradlew :andropilot-android:assembleRelease   # needs an Android SDK
 ./gradlew :demo:assembleRelease
 ```
@@ -47,6 +47,16 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   programming errors and cancellation only.
 - **Redaction is opt-out.** Screen text and typed values never reach logs unless a host sets
   `allowTextInLogs`. This component can read every screen.
+- **One event stream, many sinks.** `AgentEvent` is where observability is produced;
+  `results` and `snapshots` are filtered views of it, and the recorder and the Logcat
+  listener are just listeners. Do not add a second parallel mechanism -- there were four
+  before this was unified. Config-registered listeners are synchronous and never dropped; the
+  flow may drop.
+- **Observability is never telemetry.** Sinks write where the host points them and nowhere
+  else. The SDK has no network code; do not add any. The default withholds every field that
+  could contain screen content, including the prose the SDK composes from a screen (match
+  reasons, diff summaries, failure messages, confirmation descriptions), not just the
+  snapshot.
 - **Ambiguity is reported, not guessed.** Two equally good matches produce `AMBIGUOUS_TARGET`
   with both candidates.
 

@@ -4,6 +4,8 @@ import com.andropilot.core.action.ActionResult
 import com.andropilot.core.action.AgentAction
 import com.andropilot.core.action.UiCondition
 import com.andropilot.core.model.UiSnapshot
+import com.andropilot.core.observe.AgentEvent
+import com.andropilot.core.observe.AgentEventListener
 import com.andropilot.core.observe.TraceEntry
 import com.andropilot.core.safety.ConfirmationOutcome
 import com.andropilot.core.selector.MatchResult
@@ -29,11 +31,36 @@ public interface AndroPilotSession {
     /** Human-readable reason [isReady] is false, e.g. "accessibility service not enabled". */
     public fun readinessProblem(): String?
 
+    /**
+     * Everything the session does, as it happens: actions starting and finishing, screens
+     * observed, confirmations raised and resolved.
+     *
+     * This is the stream to build on. [snapshots] and [results] are filtered views of it,
+     * kept for convenience.
+     *
+     * Like any `SharedFlow`, a subscriber that attaches late or falls behind can miss
+     * events. When that is unacceptable -- a recorder, an audit log -- register an
+     * [com.andropilot.core.observe.AgentEventListener] through
+     * [SessionConfig.listeners] or [addEventListener] instead; those are called
+     * synchronously and never dropped.
+     */
+    public val events: Flow<AgentEvent>
+
     /** Emits every snapshot the session captures, for inspectors and recorders. */
     public val snapshots: Flow<UiSnapshot>
 
     /** Emits every action outcome, for traces and remote streaming. */
     public val results: Flow<ActionResult>
+
+    /**
+     * Adds a listener for the remainder of the session. Close the returned handle to stop.
+     *
+     * Prefer [SessionConfig.listeners] when the listener must see the whole session.
+     */
+    public fun addEventListener(listener: AgentEventListener): AutoCloseable
+
+    /** Puts a marker in the event stream, to label a run while debugging. */
+    public fun note(message: String, data: Map<String, String> = emptyMap())
 
     /** The single entry point. Everything else here is sugar over this. */
     public suspend fun execute(action: AgentAction): ActionResult

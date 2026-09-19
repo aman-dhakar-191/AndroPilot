@@ -49,11 +49,30 @@ internal class AccessibilityUiDriver(
 
     override val isConnected: Boolean get() = serviceProvider() != null
 
-    override fun connectionProblem(): String? = if (isConnected) {
-        null
-    } else {
-        "The AndroPilot accessibility service is not enabled. Send the user to " +
-            "Settings > Accessibility > AndroPilot, or call AndroPilot.openAccessibilitySettings()."
+    /**
+     * Why the driver cannot act.
+     *
+     * "Enabled in system settings" and "bound and running" are different facts, and
+     * conflating them produces the worst possible diagnostic: the one case where they
+     * disagree is a service the user has switched on that is not actually running, which is
+     * exactly when an accurate message matters. The two states have different remedies, so
+     * they get different messages.
+     */
+    override fun connectionProblem(): String? {
+        if (isConnected) return null
+        val enabledInSettings = runCatching {
+            com.andropilot.android.AndroPilot.isServiceEnabled(appContext)
+        }.getOrDefault(false)
+        return if (enabledInSettings) {
+            "The AndroPilot accessibility service is switched on in system settings but is " +
+                "not running, so it has stopped or failed to start -- Android describes a " +
+                "service in this state as malfunctioning. Toggle it off and on under " +
+                "Settings > Accessibility > AndroPilot, and check Logcat for the cause."
+        } else {
+            "The AndroPilot accessibility service is not enabled. Send the user to " +
+                "Settings > Accessibility > AndroPilot, or call " +
+                "AndroPilot.openAccessibilitySettings()."
+        }
     }
 
     private fun service(): AndroPilotAccessibilityService =
@@ -132,7 +151,21 @@ internal class AccessibilityUiDriver(
                 "Screenshots require Android 11 (API 30) or newer.",
             )
         }
-        val bitmap = takeScreenshotR(service()) ?: throw com.andropilot.core.driver.DriverException(
+        val bitmap = try {
+            takeScreenshotR(service())
+        } catch (e: SecurityException) {
+            // The platform throws this when the service's XML omits canTakeScreenshot. It
+            // used to surface as a bare INTERNAL_ERROR carrying the framework's own wording
+            // ("Services don't have the capability of taking the screenshot"), which tells
+            // an integrator nothing about where to look.
+            throw com.andropilot.core.driver.DriverException(
+                DriverErrorKind.PERMISSION_REQUIRED,
+                "The accessibility service is not allowed to take screenshots. Its " +
+                    "configuration must declare android:canTakeScreenshot=\"true\"; if you " +
+                    "override andropilot_accessibility_service.xml, add it there.",
+                e,
+            )
+        } ?: throw com.andropilot.core.driver.DriverException(
             DriverErrorKind.ACTION_REJECTED,
             "The screenshot was refused. The screen may be marked FLAG_SECURE, or the " +
                 "system may be rate-limiting capture.",

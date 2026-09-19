@@ -145,11 +145,18 @@ internal class SnapshotBuilder(
         out[insertAt] = element.copy(childIds = childIds.toList())
     }
 
-    private fun isInformative(element: UiElement): Boolean =
-        element.label != null ||
-            element.isActionable ||
-            element.resourceId != null ||
-            (element.visible && !element.bounds.isEmpty && element.role != ElementRole.UNKNOWN)
+    /**
+     * Whether a childless node is worth reporting.
+     *
+     * Size and visibility are checked first and are not negotiable: a node with no area, or
+     * one off-screen, cannot be perceived or acted on. A resource id does not rescue it --
+     * real hierarchies are full of zero-sized `ViewStub`s and collapsed bars that carry an
+     * id and nothing else, and every one of them costs an agent a line of context.
+     */
+    private fun isInformative(element: UiElement): Boolean {
+        if (!element.visible || element.bounds.isEmpty) return false
+        return element.label != null || element.isActionable || element.resourceId != null
+    }
 
     private fun toElement(
         node: AccessibilityNodeInfo,

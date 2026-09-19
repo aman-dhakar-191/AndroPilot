@@ -51,8 +51,15 @@ jobs:
             echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           fi
 
+      # The version is passed to EVERY Gradle invocation in this job, not just the one that
+      # builds the artifacts. `test` also produces core/build/libs/andropilot-core-<v>.jar,
+      # so running it at the default version leaves a second, wrongly-named jar behind that
+      # the collect step then cannot tell apart from the real one.
       - name: Test
-        run: ./gradlew :andropilot-core:test --stacktrace
+        run: |
+          ./gradlew \
+            -Pandropilot.version=${{ steps.version.outputs.value }} \
+            :andropilot-core:test --stacktrace
 
       - name: Build the release artifacts
         run: |
@@ -71,10 +78,17 @@ jobs:
 
       - name: Collect the artifacts
         run: |
+          set -euo pipefail
+          V="${{ steps.version.outputs.value }}"
           mkdir -p dist
-          cp core/build/libs/*.jar dist/ 2>/dev/null || true
-          cp android/build/outputs/aar/*.aar dist/ 2>/dev/null || true
-          cp demo/build/outputs/apk/release/*.apk dist/ 2>/dev/null || true
+          # Named explicitly rather than globbed. build/libs accumulates an artifact per
+          # Gradle invocation, so a glob attaches whatever strays are lying around; and
+          # `set -e` with no `|| true` means a missing artifact fails the job instead of
+          # quietly publishing a release with nothing in it.
+          cp "core/build/libs/andropilot-core-$V.jar" "dist/andropilot-core-$V.jar"
+          cp "android/build/outputs/aar/andropilot-android-release.aar" "dist/andropilot-android-$V.aar"
+          cp "demo/build/outputs/apk/release/demo-release.apk" "dist/andropilot-demo-$V.apk"
+          echo "Release artifacts:"
           ls -la dist
 
       - name: Publish the GitHub release

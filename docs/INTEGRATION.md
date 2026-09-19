@@ -246,6 +246,109 @@ Build your own screens with the `Ui` builders (`Ui.button`, `Ui.field`, `Ui.list
 start from `FakeScreens.login()`, `.settingsList()`, `.duplicateButtons()`,
 `.confirmDialog()`, `.opaqueCanvas()`.
 
+## Watching a session as it happens
+
+Everything the SDK does arrives on one stream: actions starting and finishing, screens
+observed, confirmations raised and answered.
+
+```kotlin
+session.events.collect { event ->
+    println(event.summarize())
+}
+```
+
+`session.results` and `session.snapshots` are filtered views of that same stream, kept for
+convenience.
+
+### Listeners, when you cannot afford to miss one
+
+`events` is a `SharedFlow`, so a subscriber that attaches late or falls behind can miss
+events. That is fine for a live inspector and wrong for a recorder or an audit log. Register
+a listener instead and it is called **synchronously**, in order, for every event:
+
+```kotlin
+AndroPilot.initialize(
+    this,
+    SessionConfig(
+        listeners = listOf(
+            LogcatEventListener(),                    // live
+            TraceRecorder.toFile(traceFile),          // durable
+        ),
+    ),
+)
+```
+
+Registering at construction matters: a listener attached afterwards never sees what already
+happened. Use `session.addEventListener(...)` when that is acceptable; it returns a handle to
+close.
+
+The guarantee has a price. A slow listener slows the session, so do your work quickly or
+hand it to your own queue. A listener that throws is isolated — observability must never be
+able to break automation.
+
+### Live, with no setup at all
+
+```bash
+adb logcat -s AndroPilot-events
+```
+
+`LogcatEventListener` writes one readable line per event. Pass
+`Format.JSON` to emit the same wire format the SDK uses everywhere else, so a piped
+`adb logcat` feeds straight into `jq`. Logcat truncates long lines, so snapshots are omitted
+there by default — use a `TraceRecorder` when you need them.
+
+### Durable, in a file
+
+`TraceRecorder` is a listener that appends JSON Lines:
+
+```kotlin
+val trace = File(context.getExternalFilesDir(null), "andropilot-trace.jsonl")
+SessionConfig(listeners = listOf(TraceRecorder.toFile(trace)))
+```
+
+```bash
+adb pull /sdcard/Android/data/<your.package>/files/andropilot-trace.jsonl
+jq -r 'select(.ok == false) | "\(.action) \(.reason)"' andropilot-trace.jsonl
+```
+
+JSON Lines, not one JSON document: the file stays valid after a crash, appends need no
+rewriting, and `grep`, `jq` and `wc -l` work on it directly.
+
+**Neither of these is telemetry.** Nothing leaves the device — the SDK has no network code
+and no reporting endpoint. If you want events off the device, write a listener that sends
+them; that is your decision to make explicitly, not one the SDK makes for you.
+
+### What gets written
+
+By default both sinks write only fields that cannot contain screen content: the action,
+outcome, reason, timing, interaction mode, element counts, and a snapshot stripped of text,
+content descriptions, hints and the window title. Roles, bounds, resource ids, flags and tree
+structure survive, which is everything needed to analyse how well the SDK perceives a screen
+and nothing that identifies whose screen it was.
+
+That extends past the snapshot, because the SDK composes prose *from* the screen: a match
+reason quotes the text it matched, a diff summary names the labels that appeared, a failure
+message lists candidates, a confirmation description quotes the button. Those are withheld
+too, and each record carries `"redacted": true` so you can tell which mode produced it.
+
+For a deeper session on a device you control:
+
+```kotlin
+TraceRecorder.toFile(trace, RecordingOptions(includeText = true))
+```
+
+Now the file holds whatever was on screen — messages, account names, one-time codes. Treat it
+as you would a screenshot, and do not ship it.
+
+Recording stops at `maxBytes` (8 MB by default) rather than filling the device, and writes a
+final line saying so.
+
+### Labelling a run
+
+```kotlin
+session.note("reproducing the checkout bug", mapOf("case" to "1042"))
+```
+
 ## Debugging
 
 ```kotlin
