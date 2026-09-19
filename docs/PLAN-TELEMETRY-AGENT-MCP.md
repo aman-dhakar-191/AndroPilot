@@ -1,6 +1,18 @@
 # Plan: telemetry, agent app, MCP, skills
 
-Status: proposal. Nothing here is implemented yet.
+Status: **implemented**. Kept as the record of why each piece is shaped the way it is.
+See [AGENT_HOST.md](AGENT_HOST.md) for how to actually run it.
+
+Two things were built differently from this plan, both simplifications found while writing
+the code:
+
+- **Telemetry reuses `TraceRecorder` instead of reimplementing the record format.** The
+  recorder already produces exactly the redacted JSON Lines the server wants, so the
+  telemetry module is a `TraceWriter` that spools and uploads. One definition of a record,
+  one definition of redaction, and a telemetry batch is byte-identical to a local trace.
+- **The WebSocket is hand-written rather than taken from a library.** Android has no
+  `java.net.http`, so a library would have meant one implementation on the phone and a
+  different one on the desk. Client and server are tested against each other on loopback.
 
 This covers four asks, in the order they should be built:
 

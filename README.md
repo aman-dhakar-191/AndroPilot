@@ -54,11 +54,21 @@ andropilot-android   AccessibilityService-backed UiDriver, plus the AndroPilot f
 andropilot-devtools  Optional. A sideload updater for apps distributed outside a store.
                      Separate from the SDK because it needs network access and, in the
                      consuming app, an install permission the SDK never requests.
+andropilot-protocol  Pure Kotlin/JVM. The frame format and WebSocket implementation the
+                     agent app and the host share. No dependency on the SDK.
+andropilot-telemetry Optional, pure Kotlin/JVM. Ships session records to a server you run.
+                     The one component that sends anything off a device, and outside the
+                     SDK for that reason.
+andropilot-host      Pure Kotlin/JVM. Runs on your machine: the bridge the phone dials
+                     into, an MCP server in front of it, and a telemetry ingest.
 demo                 An inspector app for validating the SDK on a real device.
+andropilot-agent     An app that connects a device to a host you configure, so a model
+                     running on your own machine can drive it.
 ```
 
-`andropilot-core` builds and tests with **no Android SDK installed** — the Gradle settings
-script only wires in the Android modules when one is present.
+`andropilot-core`, `-protocol`, `-telemetry` and `-host` build and test with **no Android
+SDK installed** — the Gradle settings script only wires in the Android modules when one is
+present.
 
 ## Getting started
 
@@ -68,13 +78,17 @@ script only wires in the Android modules when one is present.
   platform limits that forced each decision, and the extension points.
 - **[docs/AGENT_INTEGRATION.md](docs/AGENT_INTEGRATION.md)** — wiring the action set up as
   tools for any LLM runtime.
+- **[docs/AGENT_HOST.md](docs/AGENT_HOST.md)** — running a model on your own machine
+  against a real device: the host, the agent app, MCP, app skills and telemetry.
 
 ## Building
 
 ```bash
 ./gradlew :andropilot-core:build          # core + its full test suite, no Android SDK needed
+./gradlew :andropilot-host:build          # host, protocol and their tests, likewise
 ./gradlew :andropilot-android:assembleRelease   # requires an Android SDK
 ./gradlew :demo:assembleRelease
+./gradlew :andropilot-agent:assembleRelease
 ```
 
 Releases are built and published by GitHub Actions — push a `v*` tag, or run the **Release**

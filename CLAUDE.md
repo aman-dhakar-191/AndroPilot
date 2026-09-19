@@ -15,10 +15,19 @@ Bodies should say *why*, not restate the diff — the diff is already in the com
 ## Build
 
 ```bash
-./gradlew :andropilot-core:build            # core + 186 tests; needs NO Android SDK
+./gradlew :andropilot-core:build            # core + tests; needs NO Android SDK
+./gradlew :andropilot-protocol:build        # wire format + WebSocket; no Android SDK
+./gradlew :andropilot-telemetry:build       # event sink; no Android SDK
+./gradlew :andropilot-host:build            # PC-side bridge + MCP server; no Android SDK
 ./gradlew :andropilot-android:assembleRelease   # needs an Android SDK
 ./gradlew :demo:assembleRelease
+./gradlew :andropilot-agent:assembleRelease
 ```
+
+Four of the seven modules are plain Kotlin. That is deliberate and worth preserving: the
+only thing that genuinely needs a device is the accessibility driver, so everything else --
+including the whole agent transport and the telemetry pipeline -- is testable in the same
+Android-free CI job as core.
 
 Three build decisions look like bugs and are not. Do not "fix" them:
 
@@ -56,8 +65,13 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   listener are just listeners. Do not add a second parallel mechanism -- there were four
   before this was unified. Config-registered listeners are synchronous and never dropped; the
   flow may drop.
-- **Observability is never telemetry.** Sinks write where the host points them and nowhere
-  else. The SDK has no network code; do not add any. The default withholds every field that
+- **Observability is never telemetry, and telemetry is never in the SDK.** Sinks write
+  where the host points them and nowhere else. The SDK has no network code; do not add any.
+  `:andropilot-telemetry` is the one module that sends anything off a device, it lives
+  outside the SDK the way `:andropilot-devtools` does, it depends on core and core must
+  never depend on it, and an app that does not want it simply does not add the dependency.
+  It formats records with `TraceRecorder` rather than a second implementation, so there is
+  exactly one definition in the codebase of what redaction removes. The default withholds every field that
   could contain screen content, including the prose the SDK composes from a screen (match
   reasons, diff summaries, failure messages, confirmation descriptions), not just the
   snapshot.
@@ -75,6 +89,29 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   identical action later.
 - **Ambiguity is reported, not guessed.** Two equally good matches produce `AMBIGUOUS_TARGET`
   with both candidates.
+
+## The agent transport
+
+- **The phone dials out; the host never dials in.** Behind carrier NAT a device has no
+  inbound route, its address moves with the network, and Doze suspends a listening socket.
+  A connection the phone opens also makes the host's location a setting rather than a
+  property of the network, which is the whole point of a configurable endpoint.
+- **The wire carries `ToolCodec` documents opaquely.** `Frame.ActionRequest.payload` is
+  exactly what `executeJson` consumes, and nothing in `:andropilot-protocol` or
+  `:andropilot-host` parses it. Re-modelling actions on the wire would create a second
+  schema that drifts from the SDK's, and the SDK's has to stay authoritative.
+- **The safety policy is enforced on the phone and is not negotiable over the socket.** The
+  host is the untrusted end of that connection. A frame that could raise the phone's own
+  privileges would make the policy decorative.
+- **The WebSocket implementation is hand-written on `java.net.Socket` on purpose.** Android
+  has no `java.net.http`, so one implementation that runs in both places beats a client
+  library on the phone and a different one on the desk. Client and server are tested
+  against each other over loopback, because a masking or length bug only shows up in real
+  bytes.
+- **A connection is held by a foreground service so it cannot be invisible.** While the
+  socket is open another machine can read and tap the screen; the ongoing notification, and
+  the Disconnect action on it, are the point of putting it there rather than in the
+  activity.
 
 ## Release artifacts
 

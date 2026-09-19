@@ -38,8 +38,8 @@ jobs:
           sys.exit(bad)
           PY
 
-  core:
-    name: Core (JVM, no Android SDK)
+  jvm:
+    name: JVM modules (no Android SDK)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,21 +51,34 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # ANDROID_HOME is unset here on purpose: this job proves the core module builds and
-      # its whole test suite runs with no Android SDK present, which is the property that
-      # keeps the SDK's logic testable off-device.
-      - name: Build and test the core module
+      # ANDROID_HOME is unset here on purpose: this job proves these modules build and their
+      # whole test suites run with no Android SDK present, which is the property that keeps
+      # the SDK's logic testable off-device.
+      #
+      # Protocol, telemetry and host are pure Kotlin for that same reason. The WebSocket
+      # tests run a real client against a real server on loopback, so the framing is
+      # covered by bytes crossing a socket rather than by a mock.
+      - name: Build and test the JVM modules
         env:
           ANDROID_HOME: ""
           ANDROID_SDK_ROOT: ""
-        run: ./gradlew :andropilot-core:build --stacktrace
+        run: |
+          ./gradlew \
+            :andropilot-core:build \
+            :andropilot-protocol:build \
+            :andropilot-telemetry:build \
+            :andropilot-host:build --stacktrace
 
-      - name: Upload test report
+      - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: core-test-report
-          path: core/build/reports/tests/test
+          name: jvm-test-reports
+          path: |
+            core/build/reports/tests/test
+            protocol/build/reports/tests/test
+            telemetry/build/reports/tests/test
+            host/build/reports/tests/test
           if-no-files-found: ignore
 
   android:
@@ -129,7 +142,8 @@ jobs:
           ./gradlew \
             :andropilot-android:assembleRelease \
             :andropilot-devtools:assembleRelease \
-            :demo:assembleRelease --stacktrace
+            :demo:assembleRelease \
+            :andropilot-agent:assembleRelease --stacktrace
 
       - name: Lint
         run: ./gradlew :andropilot-android:lintRelease :andropilot-devtools:lintRelease --stacktrace
@@ -139,6 +153,13 @@ jobs:
         with:
           name: andropilot-demo-apk
           path: demo/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Upload the agent APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: andropilot-agent-apk
+          path: agent/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
       - name: Upload the library AAR
