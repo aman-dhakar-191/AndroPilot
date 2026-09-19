@@ -155,11 +155,15 @@ jobs:
           path: demo/build/outputs/apk/release/*.apk
           if-no-files-found: error
 
+      # Named rather than globbed, so this job proves the filename the release workflow
+      # copies. A glob here is what let `agent-release.apk` reach a release run and fail
+      # it: the upload passed on whatever was there while the release job expected a name
+      # AGP never produces. With `if-no-files-found: error`, a rename now fails on the PR.
       - name: Upload the agent APK
         uses: actions/upload-artifact@v4
         with:
           name: andropilot-agent-apk
-          path: agent/build/outputs/apk/release/*.apk
+          path: agent/build/outputs/apk/release/andropilot-agent-release.apk
           if-no-files-found: error
 
       - name: Upload the library AAR
