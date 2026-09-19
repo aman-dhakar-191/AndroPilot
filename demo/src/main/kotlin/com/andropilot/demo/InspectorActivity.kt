@@ -76,8 +76,13 @@ private fun InspectorScreen(viewModel: InspectorViewModel = viewModel()) {
         ) {
             item {
                 PermissionCard(
-                    connected = connected || AndroPilot.isServiceEnabled(context),
-                    onGrant = { AndroPilot.openAccessibilitySettings(context) },
+                    // Deliberately NOT `connected || isServiceEnabled`. The setting says the
+                    // user switched it on; `connected` says it is actually running. Where
+                    // they disagree the service has stopped, which is the state worth
+                    // reporting rather than papering over.
+                    bound = connected,
+                    enabledInSettings = AndroPilot.isServiceEnabled(context),
+                    onOpenSettings = { AndroPilot.openAccessibilitySettings(context) },
                 )
             }
 
@@ -236,21 +241,48 @@ private fun InspectorScreen(viewModel: InspectorViewModel = viewModel()) {
 }
 
 @Composable
-private fun PermissionCard(connected: Boolean, onGrant: () -> Unit) {
+private fun PermissionCard(
+    bound: Boolean,
+    enabledInSettings: Boolean,
+    onOpenSettings: () -> Unit,
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp)) {
-            Text(
-                if (connected) "Accessibility service: connected" else "Accessibility service: not enabled",
-                style = MaterialTheme.typography.titleMedium,
-            )
-            if (!connected) {
-                Text(
-                    "AndroPilot needs the accessibility permission to read the screen and " +
-                        "perform gestures. Until it is granted, every action returns " +
-                        "PERMISSION_REQUIRED rather than failing silently.",
-                    style = MaterialTheme.typography.bodySmall,
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            when {
+                bound -> Text(
+                    "Accessibility service: connected",
+                    style = MaterialTheme.typography.titleMedium,
                 )
-                Button(onClick = onGrant) { Text("Open accessibility settings") }
+
+                enabledInSettings -> {
+                    Text(
+                        "Accessibility service: switched on, but not running",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Text(
+                        "The system has it enabled but nothing is bound, so the service has " +
+                            "stopped or failed to start. Android shows this as \"This service " +
+                            "is malfunctioning\". Toggle it off and back on; if it returns, " +
+                            "check Logcat for the crash.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Button(onClick = onOpenSettings) { Text("Open accessibility settings") }
+                }
+
+                else -> {
+                    Text(
+                        "Accessibility service: not enabled",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        "AndroPilot needs the accessibility permission to read the screen and " +
+                            "perform gestures. Until it is granted, every action returns " +
+                            "PERMISSION_REQUIRED rather than failing silently.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Button(onClick = onOpenSettings) { Text("Open accessibility settings") }
+                }
             }
         }
     }
