@@ -136,37 +136,58 @@ session.execute(
 `ScrollUntil` stops early when the content stops moving, so an unreachable target fails in a
 second or two rather than burning the full step budget.
 
-## Running with nobody watching
+## Choosing what gets stopped
 
-A confirmation and a denial differ only when someone is there to answer. With no one at the
-device, `RequireConfirmation` is a block that never clears, and the agent finds that out by
-timing out.
-
-```kotlin
-SessionConfig(policy = DefaultSafetyPolicy.unattended())
-```
-
-Never asks. Runs navigation and ordinary state changes, and refuses anything sensitive
-outright with `BLOCKED_BY_POLICY` and a message naming the risk. That reason is not
-transient, so the retry loop does not grind on it and an agent can re-plan instead.
-
-Lower the ceiling when even ordinary changes are too much:
+Two independent axes. `RiskLevel` says *how bad* an action is; `RiskCategory` says *what kind
+of harm* — financial, destructive, communication, credential, other. Keeping them apart is
+what lets you say "ask me about money, but posting and deleting can proceed", which a single
+severity scale cannot express: paying and deleting sit at the same point on it.
 
 ```kotlin
-DefaultSafetyPolicy.unattended(denyAtOrAbove = RiskLevel.MUTATING)   // navigation only
+SessionConfig(policy = DefaultSafetyPolicy.financialOnly())
 ```
 
-`permissive()` also never asks — and also lets an unattended agent tap "Delete account" or
-"Pay". The ceiling is the whole difference between them.
+Asks before spending. Everything else — deleting, sending, posting, signing out — runs
+unsupervised.
 
-| Policy | Asks | Sensitive actions |
-|---|---|---|
-| `unattended()` | never | refused |
-| `DefaultSafetyPolicy()` (the default) | on sensitive | confirmed |
-| `strict()` | on any side effect | confirmed |
-| `permissive()` | never | allowed |
+| Policy | Asks about | Refuses | Everything else |
+|---|---|---|---|
+| `financialOnly()` | money | nothing | runs |
+| `DefaultSafetyPolicy()` (the default) | anything sensitive | nothing | runs |
+| `strict()` | any side effect | nothing | — |
+| `unattended()` | nothing | anything sensitive | runs |
+| `permissive()` | nothing | nothing | runs |
 
-## Handling confirmations
+Or scope the categories yourself:
+
+```kotlin
+DefaultSafetyPolicy(
+    gatedCategories = setOf(RiskCategory.FINANCIAL, RiskCategory.CREDENTIAL),
+)
+```
+
+Anything outside `gatedCategories` is allowed whatever its level.
+
+### When nobody is at the device
+
+A confirmation and a denial differ only when someone can respond, so pick according to what
+should happen when no one does:
+
+- **`financialOnly()`** stops and stays *pending*. Pending confirmations never expire, so it
+  can be approved whenever someone next picks the phone up, and approving runs it. Only
+  *granted* approvals age out (`confirmationValidityMs`).
+- **`unattended()`** refuses immediately with `BLOCKED_BY_POLICY` and names the risk. That
+  reason is not transient, so the retry loop leaves it alone and an agent can re-plan.
+
+Use the first when the action should still happen, just not unwatched. Use the second when it
+should not happen at all.
+
+Categorisation reads the same label the level does, so the two stay consistent: an action is
+financial because its button says "Pay", not because of anything the caller declared. A
+password field or a value flagged `sensitive` is structural rather than a guess about
+wording, so it wins outright.
+
+## Handling confirmations## Handling confirmations
 
 ```kotlin
 val result = session.click(Selector.text("Send"))
