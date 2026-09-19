@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- The updater fetches release metadata and the APK from GitHub. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      Lets the inspector hand a downloaded APK to the system installer, which then shows its
+      own confirmation. It never installs silently, and nothing in this app automates that
+      dialog. This permission belongs to the demo alone; the SDK does not request it.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:name=".DemoApplication"
         android:allowBackup="false"
@@ -20,6 +30,14 @@
 
         <!-- Lets the inspector hand the trace file to another app through the share sheet.
              A file:// Uri would throw FileUriExposedException on API 24 and above. -->
+        <receiver
+            android:name=".update.InstallResultReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.andropilot.demo.action.INSTALL_STATUS" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.traces"

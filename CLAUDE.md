@@ -60,6 +60,19 @@ Three build decisions look like bugs and are not. Do not "fix" them:
 - **Ambiguity is reported, not guessed.** Two equally good matches produce `AMBIGUOUS_TARGET`
   with both candidates.
 
+## Release artifacts
+
+- **All demo builds are signed with `keystore/andropilot-dev.keystore`**, checked in on
+  purpose. AGP's default `debug` config generates a key per machine, so every CI runner
+  produced a differently-signed APK and none could update another. That key protects nothing;
+  override it with `ANDROPILOT_KEYSTORE` and friends for a real release.
+- **The demo's versionCode packing is duplicated** in `demo/build.gradle.kts` and
+  `AppUpdater.versionCodeOf`. If they diverge, a newer release looks older than what is
+  installed and the in-app update is silently never offered.
+- **The updater lives in the demo, never the SDK.** It needs `INTERNET` and
+  `REQUEST_INSTALL_PACKAGES`; the SDK must acquire neither. An automation library that could
+  also download and install packages is a different and far more dangerous thing.
+
 ## Gotchas discovered the hard way
 
 - **XML comments cannot contain `--`.** The manifest merger fails to parse the file and the

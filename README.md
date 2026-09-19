@@ -77,6 +77,20 @@ script only wires in the Android modules when one is present.
 Releases are built and published by GitHub Actions — push a `v*` tag, or run the **Release**
 workflow manually.
 
+## Installing the demo on a device
+
+The demo APK is attached to every [release](https://github.com/aman-dhakar-191/AndroPilot/releases)
+and to every passing CI run (Build → the run → Artifacts).
+
+All builds are signed with the shared development key in `keystore/`, so a newer build
+installs over an older one. **Builds from before that key existed were each signed with a
+throwaway key**, so Android refuses to replace them — "App not installed as package conflicts
+with an existing package". Uninstall the old copy once and the problem does not recur.
+
+Once installed, the app updates itself: **App updates → Check for updates**. It downloads the
+newest release APK and hands it to Android's installer, which asks you to confirm. It never
+installs silently, and nothing in the app automates that dialog.
+
 ## Status and limits
 
 This is a working MVP with a clean architecture, not a finished product. Known boundaries:

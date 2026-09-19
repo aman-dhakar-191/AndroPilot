@@ -361,6 +361,16 @@ println(session.lastSnapshot()?.toCompactText())   // exactly what an agent woul
 Or install the demo app (`:demo`), which surfaces all of this on-device: the live element
 list, the compact rendering an agent receives, the action trace, and the confirmation queue.
 
+## A note on the `.jar`
+
+`andropilot-core-<version>.jar` is a JVM library you compile against. It is not something a
+phone can use: it holds Java bytecode rather than the DEX an Android runtime executes, and
+loading code downloaded at runtime is a security problem the SDK stays well clear of. Add it
+as a Gradle dependency; do not download it to a device.
+
+The `.aar` is the Android artifact, and it is likewise a build-time dependency. The only file
+that belongs on a device is the demo `.apk`.
+
 ## Gotchas
 
 - **`PERMISSION_REQUIRED` on every action** — the accessibility service is not enabled, or the
