@@ -53,14 +53,14 @@ public data class SessionConfig(
     /** Size of the in-memory action trace ring. */
     public val traceCapacity: Int = 200,
     /**
-     * Optional on-device recorder. Off by default.
+     * Listeners notified of every [com.andropilot.core.observe.AgentEvent].
      *
-     * When set, every action result is appended to it as JSON Lines. This is a local
-     * development aid -- nothing leaves the device -- and it redacts screen text unless the
-     * recorder was built with [com.andropilot.core.observe.RecordingOptions.includeText].
+     * Registered here rather than subscribed to later so that nothing is missed: a listener
+     * attached after the session starts would not see what already happened. These are
+     * called synchronously and in order, so a recorder or a live inspector gets every event;
+     * see [com.andropilot.core.observe.AgentEventListener] for the cost of that guarantee.
      */
-    public val recorder: com.andropilot.core.observe.TraceRecorder? = null,
-    /** Cap on elements included in a snapshot; deepest/least useful nodes are dropped first. */
+    public val listeners: List<com.andropilot.core.observe.AgentEventListener> = emptyList(),
     public val maxElements: Int = 400,
 ) {
     public val redactor: Redactor get() = Redactor(allowTextContent = allowTextInLogs)

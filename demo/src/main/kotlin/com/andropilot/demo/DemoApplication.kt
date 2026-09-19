@@ -2,6 +2,7 @@ package com.andropilot.demo
 
 import android.app.Application
 import com.andropilot.android.AndroPilot
+import com.andropilot.android.LogcatEventListener
 import com.andropilot.core.observe.LogLevel
 import com.andropilot.core.observe.RecordingOptions
 import com.andropilot.core.observe.TraceRecorder
@@ -36,9 +37,14 @@ class DemoApplication : Application() {
                 // opts into screen text. A shipping app should leave both of these off:
                 // together they put whatever is on screen into a file and into Logcat.
                 allowTextInLogs = true,
-                recorder = TraceRecorder.toFile(
-                    file = traceFile!!,
-                    options = RecordingOptions(includeText = true),
+                // One event stream, two sinks. Logcat is the live view
+                // (`adb logcat -s AndroPilot-events`); the file is the durable one.
+                listeners = listOf(
+                    LogcatEventListener(format = LogcatEventListener.Format.SUMMARY),
+                    TraceRecorder.toFile(
+                        file = traceFile!!,
+                        options = RecordingOptions(includeText = true),
+                    ),
                 ),
             ),
         )

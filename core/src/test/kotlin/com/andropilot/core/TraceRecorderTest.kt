@@ -181,7 +181,7 @@ class TraceRecorderTest {
             settleTimeoutMs = 20, settleQuietPeriodMs = 0, pollIntervalMs = 1,
             postActionDelayMs = 0, retryBackoffMs = 1,
             policy = DefaultSafetyPolicy.permissive(),
-            recorder = recorder,
+            listeners = listOf(recorder),
         ),
     )
 

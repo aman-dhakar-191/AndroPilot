@@ -58,7 +58,49 @@ public class TraceRecorder(
     private val writer: TraceWriter,
     private val options: RecordingOptions = RecordingOptions(),
     private val clock: () -> Long = System::currentTimeMillis,
-) : AutoCloseable {
+) : AgentEventListener, AutoCloseable {
+
+    /**
+     * Records the events worth keeping.
+     *
+     * `SnapshotCaptured` is skipped: the snapshot that matters is the one after an action,
+     * and that already travels inside the result. Recording every capture would multiply the
+     * file size for the observations the settle loop makes along the way.
+     */
+    override fun onEvent(event: AgentEvent) {
+        when (event) {
+            is AgentEvent.ActionFinished -> record(event.result)
+            is AgentEvent.Note -> note(event.message, event.data)
+            is AgentEvent.ConfirmationRequired -> writeConfirmation(event)
+            is AgentEvent.ConfirmationResolved -> write(
+                buildJsonObject {
+                    put("kind", "confirmation_resolved")
+                    put("t", event.at)
+                    put("id", event.id)
+                    put("outcome", event.outcome.name.lowercase())
+                }.toString(),
+            )
+            is AgentEvent.ActionStarted, is AgentEvent.SnapshotCaptured -> Unit
+        }
+    }
+
+    private fun writeConfirmation(event: AgentEvent.ConfirmationRequired) {
+        write(
+            buildJsonObject {
+                put("kind", "confirmation_required")
+                put("t", event.at)
+                put("id", event.confirmation.id)
+                put("risk", event.confirmation.risk.name.lowercase())
+                put("action", event.confirmation.action.name)
+                // The description quotes the target's label, so it is screen content.
+                if (options.includeText) {
+                    put("description", event.confirmation.description)
+                    put("reasons", encode(event.confirmation.reasons))
+                }
+            }.toString(),
+        )
+    }
+
 
     private val lock = Any()
     private var sequence: Long = 0

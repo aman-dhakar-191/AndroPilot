@@ -17,6 +17,8 @@ import com.andropilot.core.model.UiDiff
 import com.andropilot.core.model.UiElement
 import com.andropilot.core.model.UiSnapshot
 import com.andropilot.core.observe.ActionTrace
+import com.andropilot.core.observe.AgentEvent
+import com.andropilot.core.observe.AgentEventListener
 import com.andropilot.core.observe.LogLevel
 import com.andropilot.core.observe.TraceEntry
 import com.andropilot.core.safety.ConfirmationOutcome
@@ -31,10 +33,14 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -58,8 +64,19 @@ public class DefaultAndroPilotSession(
     private val snapshotCounter = AtomicLong(0)
     private val trace = ActionTrace(config.traceCapacity, config.logger, config.redactor)
 
-    private val _snapshots = MutableSharedFlow<UiSnapshot>(replay = 1, extraBufferCapacity = 16)
-    private val _results = MutableSharedFlow<ActionResult>(extraBufferCapacity = 64)
+    private val actionCounter = AtomicLong(0)
+
+    // replay = 1 so a late subscriber at least sees where the session got to.
+    private val _events = MutableSharedFlow<AgentEvent>(replay = 1, extraBufferCapacity = 128)
+
+    /**
+     * Synchronous listeners. Separate from [_events] on purpose: a SharedFlow drops when a
+     * subscriber falls behind and delivers nothing to one that subscribes late, which is
+     * fine for a live inspector and unacceptable for a recorder.
+     */
+    private val listeners = CopyOnWriteArrayList<AgentEventListener>().apply {
+        addAll(config.listeners)
+    }
 
     @Volatile private var latestSnapshot: UiSnapshot? = null
     @Volatile private var closed = false
@@ -67,8 +84,38 @@ public class DefaultAndroPilotSession(
     private val pending = LinkedHashMap<String, PendingConfirmation>()
     private val approved = HashSet<String>()
 
-    override val snapshots: SharedFlow<UiSnapshot> get() = _snapshots.asSharedFlow()
-    override val results: SharedFlow<ActionResult> get() = _results.asSharedFlow()
+    override val events: SharedFlow<AgentEvent> get() = _events.asSharedFlow()
+
+    // Filtered views of the one stream, so there is a single place an event is produced.
+    override val snapshots: Flow<UiSnapshot>
+        get() = _events.filterIsInstance<AgentEvent.SnapshotCaptured>().map { it.snapshot }
+
+    override val results: Flow<ActionResult>
+        get() = _events.filterIsInstance<AgentEvent.ActionFinished>().map { it.result }
+
+    override fun addEventListener(listener: AgentEventListener): AutoCloseable {
+        listeners += listener
+        return AutoCloseable { listeners.remove(listener) }
+    }
+
+    override fun note(message: String, data: Map<String, String>) {
+        emit(AgentEvent.Note(message, data, clock()))
+    }
+
+    /**
+     * Publishes one event: listeners first and synchronously, then the flow.
+     *
+     * A listener that throws is isolated -- observability must never be able to break
+     * automation -- but a listener that blocks will hold the session up, which is the
+     * stated cost of never dropping an event.
+     */
+    private fun emit(event: AgentEvent) {
+        listeners.forEach { listener ->
+            runCatching { listener.onEvent(event) }
+                .onFailure { log(LogLevel.WARN, "An event listener threw; continuing.", it) }
+        }
+        _events.tryEmit(event)
+    }
 
     override val isReady: Boolean get() = !closed && driver.isConnected
 
@@ -89,6 +136,7 @@ public class DefaultAndroPilotSession(
             pending.remove(id) ?: return
             if (outcome == ConfirmationOutcome.APPROVED) approved += id
         }
+        emit(AgentEvent.ConfirmationResolved(id, outcome, clock()))
         log(LogLevel.INFO, "Confirmation $id resolved: $outcome")
     }
 
@@ -117,6 +165,8 @@ public class DefaultAndroPilotSession(
 
     override suspend fun execute(action: AgentAction): ActionResult {
         val startedAt = clock()
+        val sequence = actionCounter.incrementAndGet()
+        emit(AgentEvent.ActionStarted(sequence, action, startedAt))
         val result = try {
             mutex.withLock { dispatch(action, startedAt) }
         } catch (e: DriverException) {
@@ -129,9 +179,7 @@ public class DefaultAndroPilotSession(
             fail(action, startedAt, FailureReason.INTERNAL_ERROR, e.message ?: e::class.simpleName.orEmpty())
         }
         trace.record(result, startedAt)
-        // A recorder is a debugging aid; one that broke automation would be worse than none.
-        config.recorder?.let { recorder -> runCatching { recorder.record(result) } }
-        _results.tryEmit(result)
+        emit(AgentEvent.ActionFinished(sequence, result, clock()))
         return result
     }
 
@@ -756,7 +804,7 @@ public class DefaultAndroPilotSession(
         val enriched = if (includeVisual) applyVision(capped) else capped
         val stamped = enriched.copy(snapshotId = "s${snapshotCounter.incrementAndGet()}")
         latestSnapshot = stamped
-        _snapshots.tryEmit(stamped)
+        emit(AgentEvent.SnapshotCaptured(stamped, stamped.capturedAt))
         return stamped
     }
 
@@ -932,6 +980,7 @@ public class DefaultAndroPilotSession(
                     reasons = decision.reasons,
                 )
                 synchronized(pending) { pending[key] = confirmation }
+                emit(AgentEvent.ConfirmationRequired(confirmation, clock()))
                 fail(
                     action, startedAt, FailureReason.CONFIRMATION_REQUIRED,
                     "This action is classified ${decision.risk.name.lowercase()} and needs confirmation.",
