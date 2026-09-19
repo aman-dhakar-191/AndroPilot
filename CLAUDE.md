@@ -15,7 +15,7 @@ Bodies should say *why*, not restate the diff — the diff is already in the com
 ## Build
 
 ```bash
-./gradlew :andropilot-core:build            # core + 127 tests; needs NO Android SDK
+./gradlew :andropilot-core:build            # core + 134 tests; needs NO Android SDK
 ./gradlew :andropilot-android:assembleRelease   # needs an Android SDK
 ./gradlew :demo:assembleRelease
 ```

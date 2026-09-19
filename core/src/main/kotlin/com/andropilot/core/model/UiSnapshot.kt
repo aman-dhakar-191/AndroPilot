@@ -132,15 +132,40 @@ public data class UiSnapshot(
      * when the screen is unusually dense.
      */
     public fun toCompactText(maxElements: Int = 120, includeBounds: Boolean = true): String {
-        val kept = LinkedHashSet<String>()
+        val informative = LinkedHashSet<String>()
         elements.forEach { e ->
-            val informative = e.isActionable || e.label != null || e.role == ElementRole.DIALOG
-            if (informative && e.visible) {
-                kept += e.id
-                // Keep ancestors so indentation stays meaningful.
-                ancestorsOf(e).forEach { kept += it.id }
+            if (e.visible && !e.bounds.isEmpty &&
+                (e.isActionable || e.label != null || e.role == ElementRole.DIALOG)
+            ) {
+                informative += e.id
             }
         }
+
+        // Mark every node whose subtree contains something informative.
+        val carries = HashSet<String>()
+        informative.forEach { id ->
+            var current: UiElement? = this[id]
+            while (current != null && carries.add(current.id)) {
+                current = parentOf(current)
+            }
+        }
+
+        // An ancestor earns a line only when it branches, or says something itself.
+        //
+        // A real Android hierarchy is mostly a chain of single-child layout wrappers, every
+        // one of them carrying the same full-screen bounds as the node above. Rendering that
+        // chain costs an agent a line and an indent level per wrapper and tells it nothing.
+        // Keeping only the branch points preserves the structure that actually distinguishes
+        // one element from another.
+        val kept = LinkedHashSet<String>(informative)
+        elements.forEach { e ->
+            if (e.id in informative || e.id !in carries) return@forEach
+            val branches = e.childIds.count { it in carries }
+            if (branches >= 2 || e.scrollable || e.label != null || e.role == ElementRole.DIALOG) {
+                kept += e.id
+            }
+        }
+
         val sb = StringBuilder()
         sb.append("screen package=").append(packageName ?: "unknown")
         windowTitle?.let { sb.append(" title=\"").append(it).append('"') }
@@ -157,7 +182,10 @@ public data class UiSnapshot(
                 sb.append("... ").append(kept.size - emitted).append(" more elements omitted\n")
                 break
             }
-            repeat(minOf(e.depth, 12)) { sb.append("  ") }
+            // Indent by retained ancestors, not raw tree depth: once the wrapper chain is
+            // collapsed, raw depth would leave everything pushed absurdly far right.
+            val indent = ancestorsOf(e).count { it.id in kept }
+            repeat(minOf(indent, 8)) { sb.append("  ") }
             sb.append('[').append(e.id).append("] ").append(e.role.name.lowercase())
             e.label?.let { sb.append(" \"").append(it.take(80)).append('"') }
             e.resourceId?.let { sb.append(" #").append(it.substringAfterLast('/')) }

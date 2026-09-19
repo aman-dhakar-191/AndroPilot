@@ -11,5 +11,6 @@
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews|flagRequestFilterKeyEvents"
     android:canPerformGestures="true"
     android:canRetrieveWindowContent="true"
+    android:canTakeScreenshot="true"
     android:description="@string/andropilot_service_description"
     android:notificationTimeout="100" />

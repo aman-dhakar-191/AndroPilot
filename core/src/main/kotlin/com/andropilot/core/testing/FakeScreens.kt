@@ -161,6 +161,82 @@ public object FakeScreens {
         ),
     )
 
+    /**
+     * A system-settings-shaped screen: a deep chain of single-child layout wrappers, a few
+     * zero-sized stubs with resource ids, and only a handful of rows that mean anything.
+     *
+     * Modelled on a real `com.android.settings` capture, where 123 detected elements
+     * included a ten-deep spine of full-screen containers and several `[0,296][1220,296]`
+     * stubs. It is the case that tells you whether the compact rendering is actually
+     * compact.
+     */
+    public fun deeplyWrappedSettings(wrapperDepth: Int = 10, rows: Int = 4): FakeScreen {
+        val elements = ArrayList<UiElement>()
+        val frame = PHONE.frame
+
+        // The wrapper spine: every node full-screen, single-child, no label, no actions.
+        var previousId: String? = null
+        var spineId = "root"
+        for (i in 0 until wrapperDepth) {
+            val id = if (i == 0) "root" else "w$i"
+            elements += UiElement(
+                id = id,
+                role = ElementRole.CONTAINER,
+                bounds = frame,
+                className = "android.widget.FrameLayout",
+                resourceId = "com.android.settings:id/wrapper_$i",
+                parentId = previousId,
+                childIds = listOf(if (i == wrapperDepth - 1) "settings_list" else "w${i + 1}"),
+                depth = i,
+            )
+            previousId = id
+            spineId = id
+        }
+
+        // Zero-sized stubs that carry a resource id. Real hierarchies are full of them.
+        val stubParent = spineId
+        elements += UiElement(
+            id = "stub_search",
+            role = ElementRole.CONTAINER,
+            bounds = Bounds(0, 296, 1080, 296),
+            className = "android.view.ViewStub",
+            resourceId = "com.android.settings:id/search_mode_stub",
+            parentId = stubParent,
+            depth = wrapperDepth,
+        )
+
+        val rowIds = (0 until rows).map { "row$it" }
+        elements += Ui.list(
+            "settings_list",
+            Bounds(0, 300, 1080, 1800),
+            rowIds,
+            parentId = stubParent,
+            depth = wrapperDepth,
+        )
+        rowIds.forEachIndexed { i, id ->
+            elements += Ui.listItem(
+                id = id,
+                text = listOf("Network & internet", "Connected devices", "Apps", "Notifications")
+                    .getOrElse(i) { "Setting ${i + 1}" },
+                bounds = Bounds(0, 300 + i * 200, 1080, 500 + i * 200),
+                parentId = "settings_list",
+                depth = wrapperDepth + 1,
+            )
+        }
+
+        // The spine's last wrapper owns both the stub and the list.
+        val lastWrapper = elements.indexOfFirst { it.id == spineId }
+        elements[lastWrapper] = elements[lastWrapper]
+            .copy(childIds = listOf("stub_search", "settings_list"))
+
+        return FakeScreen(
+            packageName = "com.android.settings",
+            windowTitle = "Settings",
+            metrics = PHONE,
+            elements = elements,
+        )
+    }
+
     /** A launcher-like screen whose [FakeScreen.launchHandler] can open the shop app. */
     public fun launcher(): FakeScreen {
         val screen = FakeScreen(

@@ -132,7 +132,21 @@ internal class AccessibilityUiDriver(
                 "Screenshots require Android 11 (API 30) or newer.",
             )
         }
-        val bitmap = takeScreenshotR(service()) ?: throw com.andropilot.core.driver.DriverException(
+        val bitmap = try {
+            takeScreenshotR(service())
+        } catch (e: SecurityException) {
+            // The platform throws this when the service's XML omits canTakeScreenshot. It
+            // used to surface as a bare INTERNAL_ERROR carrying the framework's own wording
+            // ("Services don't have the capability of taking the screenshot"), which tells
+            // an integrator nothing about where to look.
+            throw com.andropilot.core.driver.DriverException(
+                DriverErrorKind.PERMISSION_REQUIRED,
+                "The accessibility service is not allowed to take screenshots. Its " +
+                    "configuration must declare android:canTakeScreenshot=\"true\"; if you " +
+                    "override andropilot_accessibility_service.xml, add it there.",
+                e,
+            )
+        } ?: throw com.andropilot.core.driver.DriverException(
             DriverErrorKind.ACTION_REJECTED,
             "The screenshot was refused. The screen may be marked FLAG_SECURE, or the " +
                 "system may be rate-limiting capture.",
