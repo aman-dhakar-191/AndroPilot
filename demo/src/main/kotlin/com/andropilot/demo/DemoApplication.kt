@@ -35,11 +35,14 @@ class DemoApplication : Application() {
         AndroPilot.initialize(
             context = this,
             config = SessionConfig(
-                // Nobody is standing at the phone to answer a prompt, so the policy never
-                // raises one: it runs navigation and ordinary state changes, and refuses
-                // anything sensitive outright. Swap in DefaultSafetyPolicy() to exercise
-                // the confirmation flow instead, or strict() to confirm every side effect.
-                policy = DefaultSafetyPolicy.unattended(),
+                // Asks about money and nothing else. Everything else -- deleting, sending,
+                // posting -- runs unsupervised. A financial action stops and stays pending
+                // until someone picks the phone up, because pending confirmations do not
+                // expire and approving one runs it.
+                //
+                // unattended() refuses sensitive actions instead of asking; strict()
+                // confirms every side effect; permissive() never stops anything.
+                policy = DefaultSafetyPolicy.financialOnly(),
                 logLevel = LogLevel.DEBUG,
                 // This is a debugging tool on a device the developer controls, so the demo
                 // opts into screen text. A shipping app should leave both of these off:

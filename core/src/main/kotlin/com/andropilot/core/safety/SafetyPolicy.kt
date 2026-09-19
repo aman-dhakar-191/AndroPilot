@@ -32,6 +32,32 @@ public enum class RiskLevel {
     public fun atLeast(other: RiskLevel): Boolean = ordinal >= other.ordinal
 }
 
+/**
+ * What kind of harm an action risks, as distinct from how much.
+ *
+ * [RiskLevel] says how bad; this says of what sort. The two are independent, and separating
+ * them is what lets a host say "ask me about money, but posting and deleting can proceed" --
+ * a perfectly ordinary position that a single severity scale cannot express, because paying
+ * and deleting sit at the same level on it.
+ */
+@Serializable
+public enum class RiskCategory {
+    /** Money moves: paying, buying, transferring, withdrawing. */
+    @SerialName("financial") FINANCIAL,
+
+    /** Something is destroyed: deleting, erasing, uninstalling, closing an account. */
+    @SerialName("destructive") DESTRUCTIVE,
+
+    /** Something leaves the device: sending, posting, publishing. */
+    @SerialName("communication") COMMUNICATION,
+
+    /** Credentials and identity: passwords, one-time codes, signing out, authorising. */
+    @SerialName("credential") CREDENTIAL,
+
+    /** Everything else with a side effect. */
+    @SerialName("other") OTHER,
+}
+
 /** The verdict a [SafetyPolicy] returns for a proposed action. */
 @Serializable
 public sealed interface PolicyDecision {
@@ -94,6 +120,11 @@ public class DefaultSafetyPolicy(
      * and names why. Null, the default, never denies on risk alone.
      */
     private val denyAtOrAbove: RiskLevel? = null,
+    /**
+     * The only categories that are ever gated. Anything outside this set is allowed
+     * whatever its level, so narrowing it is how a host says which harms it cares about.
+     */
+    private val gatedCategories: Set<RiskCategory> = RiskCategory.entries.toSet(),
     /** Intent actions the host is willing to let an agent fire. Empty denies all intents. */
     private val allowedIntentActions: Set<String> = DEFAULT_ALLOWED_INTENTS,
     /** Packages the agent may drive. Empty means "any". */
@@ -133,6 +164,11 @@ public class DefaultSafetyPolicy(
 
         val reasons = ArrayList<String>(2)
         val risk = classify(action, snapshot, target, reasons)
+        val category = categorize(action, target)
+        if (category !in gatedCategories) {
+            // Not a harm this host asked to be stopped for.
+            return PolicyDecision.Allow(risk)
+        }
         return when {
             denyAtOrAbove != null && risk.atLeast(denyAtOrAbove) -> PolicyDecision.Deny(
                 "This action is classified ${risk.name.lowercase()} and the policy refuses " +
@@ -199,6 +235,27 @@ public class DefaultSafetyPolicy(
      * for. Treating both as sensitive teaches the human to approve without reading, which
      * costs more safety than the extra prompts buy.
      */
+    /**
+     * What kind of harm [action] on [target] risks.
+     *
+     * Read off the same label the level is, so the two stay consistent: an action is
+     * financial because its button says "Pay", not because of anything the caller declared.
+     * Credential markers win, since a password field or a value the caller flagged is
+     * structural rather than a guess about wording.
+     */
+    public fun categorize(action: AgentAction, target: UiElement?): RiskCategory {
+        if (action is AgentAction.TypeText && action.sensitive) return RiskCategory.CREDENTIAL
+        if (target?.password == true) return RiskCategory.CREDENTIAL
+        val label = target?.label?.lowercase() ?: return RiskCategory.OTHER
+        return when {
+            FINANCIAL_KEYWORDS.any { label.containsWord(it) } -> RiskCategory.FINANCIAL
+            DESTRUCTIVE_KEYWORDS.any { label.containsWord(it) } -> RiskCategory.DESTRUCTIVE
+            COMMUNICATION_KEYWORDS.any { label.containsWord(it) } -> RiskCategory.COMMUNICATION
+            CREDENTIAL_KEYWORDS.any { label.containsWord(it) } -> RiskCategory.CREDENTIAL
+            else -> RiskCategory.OTHER
+        }
+    }
+
     private fun labelRisk(
         snapshot: UiSnapshot?,
         target: UiElement?,
@@ -276,14 +333,31 @@ public class DefaultSafetyPolicy(
          * are listed instead. Matching is word-bounded, so "Posts", "Resend" and
          * "Addendum" do not match "post", "send" or "send".
          */
-        public val IRREVERSIBLE_KEYWORDS: Set<String> = setOf(
+        /** Money moves. */
+        public val FINANCIAL_KEYWORDS: Set<String> = setOf(
             "pay", "purchase", "buy", "checkout", "place order", "transfer", "withdraw",
             "donate",
+        )
+
+        /** Something is destroyed. */
+        public val DESTRUCTIVE_KEYWORDS: Set<String> = setOf(
             "delete", "erase", "wipe", "uninstall", "deactivate", "close account",
+        )
+
+        /** Something leaves the device. */
+        public val COMMUNICATION_KEYWORDS: Set<String> = setOf(
             "send", "publish", "post",
+        )
+
+        /** Credentials and identity. */
+        public val CREDENTIAL_KEYWORDS: Set<String> = setOf(
             "change password", "change email", "sign out", "log out",
             "authorize", "authorise",
         )
+
+        public val IRREVERSIBLE_KEYWORDS: Set<String> =
+            FINANCIAL_KEYWORDS + DESTRUCTIVE_KEYWORDS + COMMUNICATION_KEYWORDS +
+                CREDENTIAL_KEYWORDS
 
         /**
          * Labels that are dangerous in a confirmation dialog and unremarkable anywhere
@@ -313,6 +387,23 @@ public class DefaultSafetyPolicy(
 
         /** A policy that confirms anything with a side effect. */
         public fun strict(): SafetyPolicy = DefaultSafetyPolicy(confirmAtOrAbove = RiskLevel.MUTATING)
+
+        /**
+         * Asks about money and nothing else.
+         *
+         * For an agent that is trusted to get on with ordinary work but should stop before
+         * spending. Everything outside [RiskCategory.FINANCIAL] is allowed whatever its
+         * level, including deleting and sending.
+         *
+         * With nobody at the device a financial action stops and stays pending rather than
+         * failing: pending confirmations do not expire, so it can be approved whenever
+         * someone next picks the phone up, and approving runs it. Only *granted* approvals
+         * age out.
+         */
+        public fun financialOnly(): SafetyPolicy = DefaultSafetyPolicy(
+            confirmAtOrAbove = RiskLevel.SENSITIVE,
+            gatedCategories = setOf(RiskCategory.FINANCIAL),
+        )
 
         /**
          * For a session running with nobody at the device.

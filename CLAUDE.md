@@ -15,7 +15,7 @@ Bodies should say *why*, not restate the diff — the diff is already in the com
 ## Build
 
 ```bash
-./gradlew :andropilot-core:build            # core + 178 tests; needs NO Android SDK
+./gradlew :andropilot-core:build            # core + 186 tests; needs NO Android SDK
 ./gradlew :andropilot-android:assembleRelease   # needs an Android SDK
 ./gradlew :demo:assembleRelease
 ```
@@ -61,9 +61,13 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   could contain screen content, including the prose the SDK composes from a screen (match
   reasons, diff summaries, failure messages, confirmation descriptions), not just the
   snapshot.
-- **A confirmation nobody can answer is a block, not a safeguard.** For unattended sessions
-  use `DefaultSafetyPolicy.unattended()`, which never asks and refuses above a ceiling
-  instead. The demo runs this way. `permissive()` also never asks but has no ceiling.
+- **Risk has two axes.** `RiskLevel` is how bad, `RiskCategory` is what kind of harm. Keep
+  them separate: a single scale cannot express "ask about money but not about deleting",
+  because those sit at the same level. `gatedCategories` narrows what is ever stopped.
+- **A confirmation nobody can answer blocks; a denial fails.** `financialOnly()` (what the
+  demo uses) leaves a financial action pending, and pending confirmations never expire, so it
+  can be approved later and approving runs it. `unattended()` refuses immediately instead.
+  Pick by whether the action should eventually happen. `permissive()` stops nothing.
 - **Approving a confirmation RUNS the action; it is re-run, not resumed.** A human takes
   seconds to answer and the screen can move, so re-running re-resolves the selector against
   what is on screen now. An approval covers one action on one target, is consumed on use, and
