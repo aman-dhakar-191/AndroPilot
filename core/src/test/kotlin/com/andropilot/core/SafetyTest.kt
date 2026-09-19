@@ -31,70 +31,152 @@ class SafetyTest {
     private fun button(label: String) =
         Ui.button("b", label, Bounds(0, 0, 100, 100))
 
+    /** A screen with [label] on a plain button, outside any dialog. */
+    private fun plainScreen(label: String): Pair<com.andropilot.core.model.UiSnapshot, com.andropilot.core.model.UiElement> {
+        val fake = FakeScreens.login()
+        fake.add(Ui.button("probe", label, Bounds(60, 1400, 1020, 1500)))
+        fake.update("root") { it.copy(childIds = it.childIds + "probe") }
+        val snapshot = fake.toSnapshot()
+        return snapshot to snapshot.require("probe")
+    }
+
+    /** A screen with [label] on a button inside a confirmation dialog. */
+    private fun dialogScreen(label: String): Pair<com.andropilot.core.model.UiSnapshot, com.andropilot.core.model.UiElement> {
+        val fake = FakeScreens.confirmDialog()
+        fake.update("confirm") { it.copy(text = label) }
+        val snapshot = fake.toSnapshot()
+        return snapshot to snapshot.require("confirm")
+    }
+
+    private fun riskOnPlainScreen(label: String): RiskLevel {
+        val (snapshot, target) = plainScreen(label)
+        return policy.classify(AgentAction.Click(Selector.text(label)), snapshot, target)
+    }
+
+    private fun riskInDialog(label: String): RiskLevel {
+        val (snapshot, target) = dialogScreen(label)
+        return policy.classify(AgentAction.Click(Selector.text(label)), snapshot, target)
+    }
+
     @Nested
     inner class Classification {
 
         @Test
         fun `observation is read-only`() {
-            assertEquals(RiskLevel.READ_ONLY, policy.classify(AgentAction.Observe(), null))
-            assertEquals(RiskLevel.READ_ONLY, policy.classify(AgentAction.Screenshot(), null))
+            assertEquals(RiskLevel.READ_ONLY, policy.classify(AgentAction.Observe(), screen, null))
+            assertEquals(RiskLevel.READ_ONLY, policy.classify(AgentAction.Screenshot(), screen, null))
         }
 
         @Test
         fun `scrolling and back are navigation`() {
-            assertEquals(RiskLevel.NAVIGATION, policy.classify(AgentAction.Scroll(Direction.DOWN), null))
             assertEquals(
                 RiskLevel.NAVIGATION,
-                policy.classify(AgentAction.PressKey(SystemKey.BACK), null),
+                policy.classify(AgentAction.Scroll(Direction.DOWN), screen, null),
+            )
+            assertEquals(
+                RiskLevel.NAVIGATION,
+                policy.classify(AgentAction.PressKey(SystemKey.BACK), screen, null),
             )
         }
 
         @Test
         fun `an ordinary button tap is mutating, not sensitive`() {
-            val action = AgentAction.Click(Selector.text("Continue"))
-            assertEquals(RiskLevel.MUTATING, policy.classify(action, button("Continue")))
+            assertEquals(RiskLevel.MUTATING, riskOnPlainScreen("Continue"))
         }
 
         @Test
-        fun `destructive and financial labels are sensitive`() {
-            val action = AgentAction.Click(Selector.text("x"))
-            listOf("Delete", "Send", "Pay now", "Confirm order", "Transfer", "Buy").forEach { label ->
-                assertEquals(
-                    RiskLevel.SENSITIVE,
-                    policy.classify(action, button(label)),
-                    "\"$label\" should be sensitive",
-                )
-            }
+        fun `irreversible labels are sensitive wherever they appear`() {
+            listOf("Delete", "Send", "Pay now", "Buy", "Transfer", "Withdraw", "Sign out")
+                .forEach { label ->
+                    assertEquals(
+                        RiskLevel.SENSITIVE, riskOnPlainScreen(label),
+                        "\"$label\" should be sensitive on any screen",
+                    )
+                }
         }
 
         @Test
-        fun `keyword matching is word-bounded, so Resend is not Send`() {
-            val action = AgentAction.Click(Selector.text("x"))
-            assertEquals(RiskLevel.MUTATING, policy.classify(action, button("Addendum")))
-            assertEquals(RiskLevel.MUTATING, policy.classify(action, button("Deleted items")))
+        fun `ambiguous labels are ordinary on a plain screen`() {
+            // Every one of these sits on a benign button in some shipping app: a form's
+            // Submit, a filter sheet's Apply, a cookie banner's Allow, a chip's Remove.
+            listOf("Submit", "Apply", "Allow", "Accept", "Remove", "Reset", "Verify", "Share")
+                .forEach { label ->
+                    assertEquals(
+                        RiskLevel.MUTATING, riskOnPlainScreen(label),
+                        "\"$label\" should not be sensitive outside a dialog",
+                    )
+                }
+        }
+
+        @Test
+        fun `the same ambiguous labels are sensitive inside a dialog`() {
+            listOf("Submit", "Apply", "Allow", "Accept", "Remove", "Reset", "Confirm")
+                .forEach { label ->
+                    assertEquals(
+                        RiskLevel.SENSITIVE, riskInDialog(label),
+                        "\"$label\" should be sensitive as a dialog's commit button",
+                    )
+                }
+        }
+
+        @Test
+        fun `a dialog does not make an unrelated label sensitive`() {
+            assertEquals(RiskLevel.MUTATING, riskInDialog("Tell me more"))
+        }
+
+        @Test
+        fun `an element behind an open dialog is judged by its own ancestry`() {
+            // hasDialog is true for the whole snapshot, but this button is not in the
+            // dialog subtree, so a contextual keyword must not escalate.
+            val fake = FakeScreens.confirmDialog()
+            fake.add(Ui.button("behind", "Apply", Bounds(60, 300, 1020, 400)))
+            fake.update("root") { it.copy(childIds = it.childIds + "behind") }
+            val snapshot = fake.toSnapshot()
+            assertEquals(
+                RiskLevel.MUTATING,
+                policy.classify(
+                    AgentAction.Click(Selector.text("Apply")),
+                    snapshot,
+                    snapshot.require("behind"),
+                ),
+            )
+        }
+
+        @Test
+        fun `keyword matching is word-bounded, so Addendum is not send`() {
+            assertEquals(RiskLevel.MUTATING, riskOnPlainScreen("Addendum"))
+            assertEquals(RiskLevel.MUTATING, riskOnPlainScreen("Resend code"))
+            assertEquals(RiskLevel.MUTATING, riskOnPlainScreen("Posts"))
             // A genuine standalone keyword still matches, punctuation and all.
-            assertEquals(RiskLevel.SENSITIVE, policy.classify(action, button("Send.")))
+            assertEquals(RiskLevel.SENSITIVE, riskOnPlainScreen("Send."))
+        }
+
+        @Test
+        fun `order is not a keyword because Order history is not an order`() {
+            assertEquals(RiskLevel.MUTATING, riskOnPlainScreen("Order history"))
+            assertEquals(RiskLevel.SENSITIVE, riskOnPlainScreen("Place order"))
         }
 
         @Test
         fun `a password field is sensitive whatever it is labelled`() {
             val field = Ui.field("p", "Anything", Bounds(0, 0, 10, 10), password = true)
             val action = AgentAction.TypeText(null, "value")
-            assertEquals(RiskLevel.SENSITIVE, policy.classify(action, field))
+            assertEquals(RiskLevel.SENSITIVE, policy.classify(action, screen, field))
         }
 
         @Test
         fun `text explicitly marked sensitive is sensitive regardless of the target`() {
             val action = AgentAction.TypeText(null, "123456", sensitive = true)
-            assertEquals(RiskLevel.SENSITIVE, policy.classify(action, button("Code")))
+            assertEquals(RiskLevel.SENSITIVE, policy.classify(action, screen, null))
         }
 
         @Test
-        fun `a custom keyword can be added by the host`() {
+        fun `a host keyword is treated as unconditionally sensitive`() {
             val custom = DefaultSafetyPolicy(extraSensitiveKeywords = setOf("yeet"))
+            val (snapshot, target) = plainScreen("Yeet it")
             assertEquals(
                 RiskLevel.SENSITIVE,
-                custom.classify(AgentAction.Click(Selector.text("x")), button("Yeet it")),
+                custom.classify(AgentAction.Click(Selector.text("x")), snapshot, target),
             )
         }
     }
@@ -107,9 +189,8 @@ class SafetyTest {
             assertInstanceOf<PolicyDecision.Allow>(
                 policy.evaluate(AgentAction.Observe(), screen, null),
             )
-            val decision = policy.evaluate(
-                AgentAction.Click(Selector.text("Delete")), screen, button("Delete"),
-            )
+            val (snapshot, target) = plainScreen("Delete")
+            val decision = policy.evaluate(AgentAction.Click(Selector.text("Delete")), snapshot, target)
             val confirm = assertInstanceOf<PolicyDecision.RequireConfirmation>(decision)
             assertTrue(confirm.reasons.any { it.contains("delete", ignoreCase = true) })
         }

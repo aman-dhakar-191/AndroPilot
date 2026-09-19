@@ -87,9 +87,10 @@ This is a working MVP with a clean architecture, not a finished product. Known b
   Both are reported explicitly rather than worked around.
 - The SDK respects Android's security model. It contains nothing intended to bypass platform
   or app protections, and it cannot grant itself the accessibility permission.
-- The default sensitive-action classifier is keyword-driven and will produce false positives.
-  That is the intended bias for a component that can spend a user's money; supply your own
-  `SafetyPolicy` if you need different behaviour.
+- The default sensitive-action classifier reads structure first (password fields, dialog
+  commit buttons) and labels second, and it is still a heuristic: it will miss a destructive
+  button with an unusual label, and flag the occasional harmless one. Supply your own
+  `SafetyPolicy` when the cost of either mistake is real.
 
 ## Licence
 

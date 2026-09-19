@@ -1,6 +1,7 @@
 package com.andropilot.core.safety
 
 import com.andropilot.core.action.AgentAction
+import com.andropilot.core.model.ElementRole
 import com.andropilot.core.model.UiElement
 import com.andropilot.core.model.UiSnapshot
 import kotlinx.serialization.SerialName
@@ -67,10 +68,19 @@ public fun interface SafetyPolicy {
  * The shipped default: classifies risk heuristically, allows everything up to
  * [confirmAtOrAbove], and asks for confirmation beyond it.
  *
- * The heuristics are intentionally conservative and keyword-driven. They will produce false
- * positives; that is the correct bias for a component that can spend a user's money. A host
- * that wants different behaviour supplies its own [SafetyPolicy] -- this class is a sane
- * default, not a security guarantee.
+ * Risk is decided by structure first and vocabulary second: a password field or a
+ * caller-marked credential is decisive, an irreversible keyword escalates on its own, and an
+ * ambiguous keyword escalates only when the target sits inside a dialog.
+ *
+ * The temptation is to flag everything that sounds alarming, on the theory that over-asking
+ * is the safe direction. It is not. A policy that interrupts every form submission trains the
+ * human to approve without reading, which is precisely when the one prompt that mattered goes
+ * through unexamined. Prompting is a budget, and this class spends it on the actions a person
+ * would actually want to be stopped for.
+ *
+ * It is a sane default, not a security guarantee. A host that wants different behaviour
+ * supplies its own [SafetyPolicy]; [strict] confirms every side effect for callers who would
+ * rather have the noise.
  */
 public class DefaultSafetyPolicy(
     /** Actions at or above this level require host confirmation. */
@@ -79,11 +89,13 @@ public class DefaultSafetyPolicy(
     private val allowedIntentActions: Set<String> = DEFAULT_ALLOWED_INTENTS,
     /** Packages the agent may drive. Empty means "any". */
     private val allowedPackages: Set<String> = emptySet(),
-    /** Additional label keywords that should be treated as sensitive. */
+    /** Extra label keywords the host wants treated as unconditionally sensitive. */
     extraSensitiveKeywords: Set<String> = emptySet(),
 ) : SafetyPolicy {
 
-    private val sensitiveKeywords = SENSITIVE_KEYWORDS + extraSensitiveKeywords.map { it.lowercase() }
+    private val irreversibleKeywords =
+        IRREVERSIBLE_KEYWORDS + extraSensitiveKeywords.map { it.lowercase() }
+    private val contextualKeywords = CONTEXTUAL_KEYWORDS
 
     override fun evaluate(
         action: AgentAction,
@@ -111,7 +123,7 @@ public class DefaultSafetyPolicy(
         }
 
         val reasons = ArrayList<String>(2)
-        val risk = classify(action, target, reasons)
+        val risk = classify(action, snapshot, target, reasons)
         return if (risk.atLeast(confirmAtOrAbove)) {
             PolicyDecision.RequireConfirmation(risk, reasons)
         } else {
@@ -122,6 +134,7 @@ public class DefaultSafetyPolicy(
     /** Risk classification, exposed so hosts can reuse it inside a custom policy. */
     public fun classify(
         action: AgentAction,
+        snapshot: UiSnapshot?,
         target: UiElement?,
         reasons: MutableList<String> = ArrayList(),
     ): RiskLevel = when (action) {
@@ -147,28 +160,76 @@ public class DefaultSafetyPolicy(
             reasons += "The text was marked as a credential or one-time code."
             RiskLevel.SENSITIVE
         } else {
-            labelRisk(target, reasons).takeIf { it == RiskLevel.SENSITIVE } ?: RiskLevel.MUTATING
+            labelRisk(snapshot, target, reasons).takeIf { it == RiskLevel.SENSITIVE } ?: RiskLevel.MUTATING
         }
 
         is AgentAction.ClearText -> RiskLevel.MUTATING
 
         is AgentAction.Click, is AgentAction.LongPress, is AgentAction.ClickPoint ->
-            labelRisk(target, reasons)
+            labelRisk(snapshot, target, reasons)
     }
 
-    private fun labelRisk(target: UiElement?, reasons: MutableList<String>): RiskLevel {
+    /**
+     * Risk of acting on [target], in order of how much the signal can be trusted.
+     *
+     *  1. **Structural signals** -- a password field, or text the caller marked sensitive.
+     *     These come from the app or the caller, not from guessing, so they are decisive.
+     *  2. **Irreversible keywords** -- words that are rarely anything but the real thing
+     *     ("pay", "delete", "withdraw"). These escalate on their own.
+     *  3. **Contextual keywords** -- words that appear on ordinary buttons far more often
+     *     than on dangerous ones ("submit", "allow", "remove"). These escalate only when
+     *     structure corroborates them, which in practice means the target sits inside a
+     *     dialog.
+     *
+     * The third tier is the whole point. "Submit" on a form is a form; "Submit" inside a
+     * modal is the commit step of something the app thought worth interrupting the user
+     * for. Treating both as sensitive teaches the human to approve without reading, which
+     * costs more safety than the extra prompts buy.
+     */
+    private fun labelRisk(
+        snapshot: UiSnapshot?,
+        target: UiElement?,
+        reasons: MutableList<String>,
+    ): RiskLevel {
         if (target?.password == true) {
             reasons += "The target is a password field."
             return RiskLevel.SENSITIVE
         }
         val label = target?.label?.lowercase() ?: return RiskLevel.MUTATING
-        val hit = sensitiveKeywords.firstOrNull { keyword -> label.containsWord(keyword) }
-        return if (hit != null) {
-            reasons += "The target is labelled \"${target.label}\", which matches the sensitive keyword \"$hit\"."
-            RiskLevel.SENSITIVE
-        } else {
-            RiskLevel.MUTATING
+
+        irreversibleKeywords.firstOrNull { label.containsWord(it) }?.let { hit ->
+            reasons += "The target is labelled \"${target.label}\", which matches the " +
+                "irreversible-action keyword \"$hit\"."
+            return RiskLevel.SENSITIVE
         }
+
+        val contextual = contextualKeywords.firstOrNull { label.containsWord(it) }
+        if (contextual != null && isCommitPoint(snapshot, target)) {
+            reasons += "The target is labelled \"${target.label}\" and sits inside a dialog, " +
+                "so \"$contextual\" is being treated as a confirmation step rather than " +
+                "ordinary navigation."
+            return RiskLevel.SENSITIVE
+        }
+
+        return RiskLevel.MUTATING
+    }
+
+    /**
+     * Whether the target is the commit button of something modal.
+     *
+     * Ancestry is preferred over the snapshot's `hasDialog` flag: a screen can have a
+     * dialog open while the agent acts on something behind it, and only the element's own
+     * position in the tree says which side of that it is on. The flag is the fallback for
+     * snapshots whose ancestry is unavailable (a truncated tree, or a visually-detected
+     * element with no parent links).
+     */
+    private fun isCommitPoint(snapshot: UiSnapshot?, target: UiElement): Boolean {
+        snapshot ?: return false
+        val ancestors = snapshot.ancestorsOf(target)
+        if (ancestors.isNotEmpty()) {
+            return ancestors.any { it.role == ElementRole.DIALOG }
+        }
+        return snapshot.hasDialog
     }
 
     private fun AgentAction.mutatesState(): Boolean = when (this) {
@@ -193,17 +254,37 @@ public class DefaultSafetyPolicy(
 
     public companion object {
         /**
-         * Labels that, on a button, usually mean money moved, a message left the device,
-         * or something got destroyed.
+         * Labels that almost always mean money moved, a message left the device, or
+         * something was destroyed.
+         *
+         * Entries earn their place by having a low false-positive rate in real UIs, not
+         * just by sounding alarming. "order" is absent because "Order history" and "Sort
+         * order" are far more common than an order being placed; the committing phrases
+         * are listed instead. Matching is word-bounded, so "Posts", "Resend" and
+         * "Addendum" do not match "post", "send" or "send".
          */
-        public val SENSITIVE_KEYWORDS: Set<String> = setOf(
-            "send", "pay", "purchase", "buy", "order", "checkout", "confirm order",
-            "subscribe", "transfer", "withdraw", "donate", "tip",
-            "delete", "remove", "erase", "wipe", "clear all", "reset", "format",
-            "uninstall", "deactivate", "close account", "unsubscribe",
-            "sign out", "log out", "change password", "change email", "verify",
-            "authorize", "authorise", "grant", "allow", "accept", "agree",
-            "publish", "post", "share", "submit", "apply", "install",
+        public val IRREVERSIBLE_KEYWORDS: Set<String> = setOf(
+            "pay", "purchase", "buy", "checkout", "place order", "transfer", "withdraw",
+            "donate",
+            "delete", "erase", "wipe", "uninstall", "deactivate", "close account",
+            "send", "publish", "post",
+            "change password", "change email", "sign out", "log out",
+            "authorize", "authorise",
+        )
+
+        /**
+         * Labels that are dangerous in a confirmation dialog and unremarkable anywhere
+         * else, so they escalate only when the target sits inside one.
+         *
+         * Every word here is on a benign button in some app you have used this week:
+         * "Submit" on a form, "Apply" on a filter sheet, "Allow" on a cookie banner,
+         * "Remove" on a chip, "Reset" on a search. Escalating them unconditionally is what
+         * turns confirmation into a reflex.
+         */
+        public val CONTEXTUAL_KEYWORDS: Set<String> = setOf(
+            "confirm", "submit", "apply", "accept", "agree", "allow", "grant", "continue",
+            "remove", "clear", "reset", "discard", "revoke", "unlink", "disconnect",
+            "install", "update", "share", "subscribe", "unsubscribe", "verify", "format",
         )
 
         /** Navigation-grade intents only. Anything wider is the host's explicit choice. */
@@ -213,8 +294,8 @@ public class DefaultSafetyPolicy(
         )
 
         /** A policy that never asks, for tests and trusted offline harnesses. */
-        public fun permissive(): SafetyPolicy = SafetyPolicy { action, _, target ->
-            PolicyDecision.Allow(DefaultSafetyPolicy().classify(action, target))
+        public fun permissive(): SafetyPolicy = SafetyPolicy { action, snapshot, target ->
+            PolicyDecision.Allow(DefaultSafetyPolicy().classify(action, snapshot, target))
         }
 
         /** A policy that confirms anything with a side effect. */

@@ -159,9 +159,26 @@ Risk is classified (`READ_ONLY` → `NAVIGATION` → `MUTATING` → `SENSITIVE`)
 touches the device, with the current snapshot and the resolved target in hand — so a policy can
 key off what is actually on screen ("this button says Pay £240"), not just the request.
 
-The SDK classifies; the host decides. `SafetyPolicy` is a single-method interface; the default
-implementation is keyword-driven, conservative, and will produce false positives. That is the
-correct bias for a component that can spend a user's money.
+The SDK classifies; the host decides. `SafetyPolicy` is a single-method interface. The default
+implementation ranks its signals by how much they can be trusted:
+
+1. **Structural** -- a password field, or text the caller marked `sensitive`. These come from
+   the app or the caller rather than from guessing, so they are decisive.
+2. **Irreversible keywords** -- "pay", "delete", "withdraw", "send". Rarely anything but the
+   real thing, so they escalate on their own.
+3. **Contextual keywords** -- "submit", "apply", "allow", "remove". These escalate *only* when
+   the target sits inside a dialog.
+
+The third tier is the load-bearing one. The obvious design is to flag every alarming-sounding
+word, on the theory that over-asking errs safe. It does not: a policy that interrupts every
+form submission teaches the user to approve reflexively, and the prompt that mattered is the
+one they then wave through. Confirmation is a budget, not a free action. "Submit" on a form is
+a form; "Submit" inside a modal is the commit step of something the app itself thought worth
+interrupting for — and the dialog is a signal the *app* produced, not one the SDK invented.
+
+Ancestry decides tier 3, not the snapshot's `hasDialog` flag: a dialog can be open while the
+agent acts on something behind it, and only the element's position in the tree says which side
+of that it is on.
 
 Confirmations are **single-use**: an approval is keyed to the action and target and removed on
 redemption, so an agent cannot obtain one "yes" and then send a hundred messages.

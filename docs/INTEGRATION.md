@@ -181,6 +181,31 @@ AndroPilot.initialize(
 For full control, implement `SafetyPolicy` yourself — it is a single method that receives the
 action, the current snapshot and the resolved target.
 
+### What the default actually flags
+
+`DefaultSafetyPolicy` ranks signals by how much they can be trusted, so you can predict it:
+
+| Signal | Result |
+|---|---|
+| Password field, or `TypeText(sensitive = true)` | Always `SENSITIVE` |
+| `IRREVERSIBLE_KEYWORDS` ("pay", "delete", "send", "withdraw", …) | Always `SENSITIVE` |
+| `CONTEXTUAL_KEYWORDS` ("submit", "apply", "allow", "remove", …) | `SENSITIVE` only inside a dialog |
+| Anything else with a side effect | `MUTATING` |
+
+So "Submit" on a form is `MUTATING` and runs; "Submit" as a dialog's commit button is
+`SENSITIVE` and asks. This is deliberate — a policy that interrupts every form submission
+trains people to approve without reading, and then the prompt that mattered goes through with
+the rest. If you would rather have the noise, `DefaultSafetyPolicy.strict()` confirms every
+side effect.
+
+Both keyword sets are public, so you can inspect them or add to the always-sensitive tier:
+
+```kotlin
+DefaultSafetyPolicy(extraSensitiveKeywords = setOf("wire", "liquidate"))
+```
+
+Matching is word-bounded, so "Resend", "Posts" and "Addendum" do not match "send" or "post".
+
 ## Plugging in vision
 
 Only needed for apps with a poor or absent accessibility tree.
