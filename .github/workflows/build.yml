@@ -1,0 +1,102 @@
+name: Build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  core:
+    name: Core (JVM, no Android SDK)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # ANDROID_HOME is unset here on purpose: this job proves the core module builds and
+      # its whole test suite runs with no Android SDK present, which is the property that
+      # keeps the SDK's logic testable off-device.
+      - name: Build and test the core module
+        env:
+          ANDROID_HOME: ""
+          ANDROID_SDK_ROOT: ""
+        run: ./gradlew :andropilot-core:build --stacktrace
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-test-report
+          path: core/build/reports/tests/test
+          if-no-files-found: ignore
+
+  android:
+    name: Android library and demo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # android-actions/setup-android is not used: it installs the retired `tools` package
+      # and fails outright. The ubuntu runners already ship an Android SDK, so the only thing
+      # needed is the specific platform and build-tools this project compiles against.
+      - name: Prepare the Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          # The runners version the cmdline-tools directory (16.0, latest, ...), so locate
+          # sdkmanager rather than assuming a path.
+          SDKMANAGER="$(find "$SDK/cmdline-tools" -name sdkmanager -type f | sort | tail -1)"
+          echo "Using $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Assemble the library and the demo app
+        run: ./gradlew :andropilot-android:assembleRelease :demo:assembleRelease --stacktrace
+
+      - name: Lint
+        run: ./gradlew :andropilot-android:lintRelease --stacktrace
+
+      - name: Upload the demo APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: andropilot-demo-apk
+          path: demo/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Upload the library AAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: andropilot-android-aar
+          path: android/build/outputs/aar/*.aar
+          if-no-files-found: error
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-lint-report
+          path: android/build/reports/lint-results-release.html
+          if-no-files-found: ignore

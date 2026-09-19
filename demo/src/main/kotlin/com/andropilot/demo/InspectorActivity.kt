@@ -1,0 +1,283 @@
+package com.andropilot.demo
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.andropilot.android.AndroPilot
+import com.andropilot.core.model.UiElement
+import com.andropilot.core.safety.ConfirmationOutcome
+
+/**
+ * A developer tool, not a product.
+ *
+ * It answers the questions an integrator has while wiring the SDK up: what does the SDK see
+ * right now, which elements did it detect, what happened when I triggered an action, and
+ * why did it fail. Everything shown is rendered from SDK types, so if it looks right here
+ * an agent will receive the same thing.
+ */
+class InspectorActivity : ComponentActivity() {
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContent {
+            MaterialTheme {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    InspectorScreen()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InspectorScreen(viewModel: InspectorViewModel = viewModel()) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val connected by viewModel.serviceConnected.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var targetPackage by remember { mutableStateOf("com.android.settings") }
+
+    Scaffold { padding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item {
+                PermissionCard(
+                    connected = connected || AndroPilot.isServiceEnabled(context),
+                    onGrant = { AndroPilot.openAccessibilitySettings(context) },
+                )
+            }
+
+            item {
+              Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionTitle("Perception")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = viewModel::observe, enabled = !state.busy) { Text("Observe") }
+                    OutlinedButton(onClick = viewModel::observeWithVision, enabled = !state.busy) {
+                        Text("Observe + vision")
+                    }
+                    OutlinedButton(onClick = viewModel::screenshot, enabled = !state.busy) {
+                        Text("Screenshot")
+                    }
+                }
+  }
+            }
+
+            item {
+              Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionTitle("Navigation")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = viewModel::back, enabled = !state.busy) { Text("Back") }
+                    OutlinedButton(onClick = viewModel::home, enabled = !state.busy) { Text("Home") }
+                    OutlinedButton(onClick = viewModel::scrollDown, enabled = !state.busy) { Text("Scroll ↓") }
+                    OutlinedButton(onClick = viewModel::scrollUp, enabled = !state.busy) { Text("Scroll ↑") }
+                }
+  }
+            }
+
+            item {
+              Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionTitle("Target an element")
+                OutlinedTextField(
+                    value = state.selectorText,
+                    onValueChange = viewModel::onSelectorChanged,
+                    label = { Text("Selector text (fuzzy matched)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = viewModel::findElement, enabled = !state.busy) { Text("Find") }
+                    OutlinedButton(onClick = viewModel::click, enabled = !state.busy) { Text("Click") }
+                    OutlinedButton(onClick = viewModel::longPress, enabled = !state.busy) { Text("Long press") }
+                    OutlinedButton(onClick = viewModel::waitForSelector, enabled = !state.busy) { Text("Wait for") }
+                }
+  }
+            }
+
+            item {
+              Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionTitle("Text entry")
+                OutlinedTextField(
+                    value = state.typeText,
+                    onValueChange = viewModel::onTypeTextChanged,
+                    label = { Text("Text to type into the targeted field") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = viewModel::typeText, enabled = !state.busy) { Text("Type") }
+                    OutlinedButton(onClick = viewModel::clearText, enabled = !state.busy) { Text("Clear") }
+                }
+  }
+            }
+
+            item {
+              Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionTitle("Applications")
+                OutlinedTextField(
+                    value = targetPackage,
+                    onValueChange = { targetPackage = it },
+                    label = { Text("Package name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { viewModel.launch(targetPackage) }, enabled = !state.busy) {
+                        Text("Launch")
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.runSequence(targetPackage) },
+                        enabled = !state.busy,
+                    ) { Text("Run 4-step sequence") }
+                }
+  }
+            }
+
+            if (state.pending.isNotEmpty()) {
+                item { SectionTitle("Awaiting your confirmation") }
+                items(state.pending, key = { it.id }) { confirmation ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text(confirmation.description, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "Risk: ${confirmation.risk.name.lowercase()}",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            confirmation.reasons.forEach {
+                                Text("• $it", style = MaterialTheme.typography.bodySmall)
+                            }
+                            Row {
+                                TextButton(onClick = {
+                                    viewModel.resolve(confirmation.id, ConfirmationOutcome.APPROVED)
+                                }) { Text("Approve") }
+                                TextButton(onClick = {
+                                    viewModel.resolve(confirmation.id, ConfirmationOutcome.REJECTED)
+                                }) { Text("Reject") }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+              Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                SectionTitle("What the agent would receive")
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = state.lastSummary,
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier
+                            .padding(12.dp)
+                            .horizontalScroll(rememberScrollState()),
+                    )
+                }
+  }
+            }
+
+            state.snapshot?.let { snapshot ->
+                item {
+                    SectionTitle(
+                        "Detected elements (${snapshot.elements.size}) in ${snapshot.packageName ?: "unknown"}",
+                    )
+                }
+                items(snapshot.elements, key = { it.id }) { element ->
+                    ElementRow(element, highlighted = state.matches.any { it.id == element.id })
+                }
+            }
+
+            if (state.trace.isNotEmpty()) {
+                item { SectionTitle("Action trace (most recent first)") }
+                items(state.trace, key = { it.sequence }) { entry ->
+                    Text(
+                        text = entry.format(),
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PermissionCard(connected: Boolean, onGrant: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp)) {
+            Text(
+                if (connected) "Accessibility service: connected" else "Accessibility service: not enabled",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            if (!connected) {
+                Text(
+                    "AndroPilot needs the accessibility permission to read the screen and " +
+                        "perform gestures. Until it is granted, every action returns " +
+                        "PERMISSION_REQUIRED rather than failing silently.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Button(onClick = onGrant) { Text("Open accessibility settings") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ElementRow(element: UiElement, highlighted: Boolean) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(8.dp)) {
+            Text(
+                text = (if (highlighted) "▶ " else "") + element.describe(),
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (highlighted) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            )
+            Text(
+                text = "id=${element.id} source=${element.source.name.lowercase()} " +
+                    "actions=${element.actions.joinToString(",") { it.name.lowercase() }}",
+                style = MaterialTheme.typography.labelSmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(text, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
+}
