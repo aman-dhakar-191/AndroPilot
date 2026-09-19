@@ -91,8 +91,20 @@ present.
 ./gradlew :andropilot-agent:assembleRelease
 ```
 
-Releases are built and published by GitHub Actions — push a `v*` tag, or run the **Release**
-workflow manually.
+Releases are built and published by GitHub Actions. Run the **Release** workflow and leave
+both inputs alone: it reads the last `v*` tag and raises the patch number, so the usual
+release needs no version typed anywhere.
+
+A release that is more than a patch has to say so, because this project's commit subjects
+are imperative prose rather than conventional-commit prefixes and there is nothing in one
+to infer a major or a minor from. Say it either way:
+
+- pick `minor` or `major` from the dropdown when starting the run, or
+- put a `Release: minor` (or `Release: major`) trailer in the commit that earned it — the
+  workflow looks for one in everything since the last tag, which also records *why* the
+  version moved next to the change that moved it.
+
+Pushing a `v*` tag still works and still wins: the tag is the version.
 
 ## Installing the demo on a device
 

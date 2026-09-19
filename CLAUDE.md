@@ -124,6 +124,13 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   `ANDROPILOT_KEYSTORE_BASE64` secret and its companions are set; absent them they fall back
   to the development key. Build and release must always use the SAME key, or CI artifacts and
   release artifacts cannot replace each other.
+- **The release version is derived, not typed.** A manual run reads the newest `v*` tag and
+  bumps the patch; `Release: minor` / `Release: major` trailers in the commits since that tag,
+  or the workflow's dropdown, raise it further. Commit subjects here are imperative prose by
+  design, so nothing in a normal commit can imply a major or a minor -- which is exactly why
+  the default is patch and anything larger is stated rather than guessed. A tag push still
+  wins outright. The step refuses a version that already has a tag, and one whose minor or
+  patch has reached 100, because that would break the versionCode packing below.
 - **The demo's versionCode packing is duplicated** in `demo/build.gradle.kts` and
   `AppUpdater.versionCodeOf`. If they diverge, a newer release looks older than what is
   installed and the in-app update is silently never offered.
