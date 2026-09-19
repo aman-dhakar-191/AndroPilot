@@ -139,7 +139,10 @@ internal class SnapshotBuilder(
                 runCatching { child.recycle() }
             }
         }
-        out[insertAt] = element.copy(childIds = childIds)
+        // `childIds` is a mutable list that was also handed to `toElement`, so it is copied
+        // here rather than aliased: a UiElement is documented as an immutable value and is
+        // shared with callers, including across serialization.
+        out[insertAt] = element.copy(childIds = childIds.toList())
     }
 
     private fun isInformative(element: UiElement): Boolean =

@@ -24,7 +24,21 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
+      # android-actions/setup-android is not used: it installs the retired `tools` package
+      # and fails outright. The ubuntu runners already ship an Android SDK, so the only thing
+      # needed is the specific platform and build-tools this project compiles against.
+      - name: Prepare the Android SDK
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+          # The runners version the cmdline-tools directory (16.0, latest, ...), so locate
+          # sdkmanager rather than assuming a path.
+          SDKMANAGER="$(find "$SDK/cmdline-tools" -name sdkmanager -type f | sort | tail -1)"
+          echo "Using $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0" "platform-tools"
 
       - uses: gradle/actions/setup-gradle@v4
 
