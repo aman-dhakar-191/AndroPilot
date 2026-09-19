@@ -86,16 +86,23 @@ jobs:
         run: |
           ./gradlew \
             -Pandropilot.version=${{ steps.version.outputs.value }} \
-            :andropilot-core:test --stacktrace
+            :andropilot-core:test \
+            :andropilot-protocol:test \
+            :andropilot-telemetry:test \
+            :andropilot-host:test --stacktrace
 
       - name: Build the release artifacts
         run: |
           ./gradlew \
             -Pandropilot.version=${{ steps.version.outputs.value }} \
             :andropilot-core:jar \
+            :andropilot-protocol:jar \
+            :andropilot-telemetry:jar \
+            :andropilot-host:distZip \
             :andropilot-android:assembleRelease \
             :andropilot-devtools:assembleRelease \
             :demo:assembleRelease \
+            :andropilot-agent:assembleRelease \
             --stacktrace
 
       - name: Publish to the local Maven repository
@@ -116,7 +123,11 @@ jobs:
           cp "core/build/libs/andropilot-core-$V.jar" "dist/andropilot-core-$V.jar"
           cp "android/build/outputs/aar/andropilot-android-release.aar" "dist/andropilot-android-$V.aar"
           cp "devtools/build/outputs/aar/andropilot-devtools-release.aar" "dist/andropilot-devtools-$V.aar"
+          cp "protocol/build/libs/andropilot-protocol-$V.jar" "dist/andropilot-protocol-$V.jar"
+          cp "telemetry/build/libs/andropilot-telemetry-$V.jar" "dist/andropilot-telemetry-$V.jar"
+          cp "host/build/distributions/andropilot-host-$V.zip" "dist/andropilot-host-$V.zip"
           cp "demo/build/outputs/apk/release/demo-release.apk" "dist/andropilot-demo-$V.apk"
+          cp "agent/build/outputs/apk/release/agent-release.apk" "dist/andropilot-agent-$V.apk"
           echo "Release artifacts:"
           ls -la dist
 
@@ -138,7 +149,16 @@ jobs:
             - `andropilot-devtools-*.aar` — optional sideload updater. Separate on purpose:
               it needs network access and, in the consuming app, an install permission that
               the SDK itself never requests.
+            - `andropilot-protocol-*.jar` — the frame format and WebSocket implementation
+              shared by the agent app and the host.
+            - `andropilot-telemetry-*.jar` — optional event sink that ships records to a
+              server you run. Separate from the SDK, which has no network code at all, and
+              it withholds screen text unless you turn that on.
+            - `andropilot-host-*.zip` — the desktop host: the bridge your phone dials into
+              and an MCP server in front of it.
             - `andropilot-demo-*.apk` — the inspector app, for validating the SDK on a
               device. Debug-signed; not for distribution.
+            - `andropilot-agent-*.apk` — the agent app: connects the device to a host you
+              configure, so a model running on your own machine can drive it.
 
             See `docs/INTEGRATION.md` for how to wire this into an app.
