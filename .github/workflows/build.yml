@@ -14,6 +14,30 @@ permissions:
   contents: read
 
 jobs:
+  xml:
+    name: XML well-formedness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Seconds, not minutes. An XML comment containing "--" is illegal, and the manifest
+      # merger only reports it several minutes into a Gradle run, after the SDK has been
+      # provisioned and the Kotlin compiler has started.
+      - name: Check every manifest and resource parses
+        run: |
+          python3 - <<'PY'
+          import glob, sys, xml.dom.minidom
+          bad = 0
+          for f in sorted(glob.glob("**/src/**/*.xml", recursive=True)):
+              try:
+                  xml.dom.minidom.parse(f)
+                  print("ok  ", f)
+              except Exception as e:
+                  bad = 1
+                  print("FAIL", f, e)
+          sys.exit(bad)
+          PY
+
   core:
     name: Core (JVM, no Android SDK)
     runs-on: ubuntu-latest
@@ -74,10 +98,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Assemble the library and the demo app
-        run: ./gradlew :andropilot-android:assembleRelease :demo:assembleRelease --stacktrace
+        run: |
+          ./gradlew \
+            :andropilot-android:assembleRelease \
+            :andropilot-devtools:assembleRelease \
+            :demo:assembleRelease --stacktrace
 
       - name: Lint
-        run: ./gradlew :andropilot-android:lintRelease --stacktrace
+        run: ./gradlew :andropilot-android:lintRelease :andropilot-devtools:lintRelease --stacktrace
 
       - name: Upload the demo APK
         uses: actions/upload-artifact@v4
@@ -89,8 +117,10 @@ jobs:
       - name: Upload the library AAR
         uses: actions/upload-artifact@v4
         with:
-          name: andropilot-android-aar
-          path: android/build/outputs/aar/*.aar
+          name: andropilot-aars
+          path: |
+            android/build/outputs/aar/*.aar
+            devtools/build/outputs/aar/*.aar
           if-no-files-found: error
 
       - name: Upload lint report

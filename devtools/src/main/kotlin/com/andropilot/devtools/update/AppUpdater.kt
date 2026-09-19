@@ -1,4 +1,4 @@
-package com.andropilot.demo.update
+package com.andropilot.devtools.update
 
 import android.app.PendingIntent
 import android.content.Context
@@ -7,11 +7,11 @@ import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
-import com.andropilot.core.util.AndroPilotJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.Serializable
 import java.io.File
 import java.net.HttpURLConnection
@@ -42,23 +42,34 @@ public sealed interface UpdateState {
 /**
  * Fetches the newest release from GitHub and hands the APK to the system installer.
  *
- * **This lives in the demo, not the SDK, and that boundary is deliberate.** The SDK has no
- * network code and must not gain any; an automation library that could also download and
+ * **This is a separate artifact from the SDK, and that boundary is deliberate.** The SDK has
+ * no network code and must not gain any; an automation library that could also download and
  * install packages is a different and far more dangerous thing than one that taps buttons.
+ * Combining them is a decision an integrator makes explicitly, by adding this dependency.
  *
  * It never installs silently. The APK is handed to Android's `PackageInstaller`, which shows
  * its own confirmation, and the user approves it. Nothing here drives that dialog, and the
  * accessibility service must never be pointed at it: a component that can tap "Install" and
  * also choose what to install would be a malware primitive, whatever the intent.
  *
- * Updates only work at all because every build is signed with the same key -- see the `dev`
- * signing config in `demo/build.gradle.kts`. Android refuses to replace an app whose
- * signature changed, which is what "package conflicts with an existing package" means.
+ * Updates only work at all when every build is signed with the same key. Android refuses to
+ * replace an app whose signature changed, which is what "App not installed as package
+ * conflicts with an existing package" means. See the `dev` signing config in
+ * `demo/build.gradle.kts` for how this repository does it.
+ *
+ * Consuming apps must declare `REQUEST_INSTALL_PACKAGES` themselves; this library does not
+ * declare it, so no app inherits an install permission it did not ask for.
  */
 public class AppUpdater(
     private val context: Context,
-    private val repository: String = DEFAULT_REPOSITORY,
+    /** The GitHub repository to read releases from, as `owner/name`. */
+    private val repository: String,
 ) {
+
+    // Its own parser rather than the SDK's: this module does not depend on the SDK, so an
+    // app can use the updater without embedding an automation library, and the SDK never
+    // acquires a reason to grow network code.
+    private val json = Json { ignoreUnknownKeys = true }
 
     private val downloadDir: File
         get() = File(context.getExternalFilesDir(null) ?: context.filesDir, "updates")
@@ -137,8 +148,10 @@ public class AppUpdater(
     public fun install(file: File): UpdateState {
         if (!canRequestInstalls()) {
             return UpdateState.NeedsPermission(
-                "Android needs permission to install apps from this one. Grant \"Install " +
-                    "unknown apps\" for AndroPilot Inspector, then try again.",
+                "This app cannot install packages. Declare " +
+                    "android.permission.REQUEST_INSTALL_PACKAGES in its manifest -- this " +
+                    "library deliberately does not declare it for you -- and grant " +
+                    "\"Install unknown apps\" in system settings.",
             )
         }
         return try {
@@ -222,7 +235,7 @@ public class AppUpdater(
     private fun fetchLatestRelease(): AvailableRelease? {
         val connection = open("https://api.github.com/repos/$repository/releases/latest")
         val body = connection.inputStream.bufferedReader().use { it.readText() }
-        val release = AndroPilotJson.instance.decodeFromString<GitHubRelease>(body)
+        val release = json.decodeFromString<GitHubRelease>(body)
         val asset = release.assets.firstOrNull {
             it.name.endsWith(".apk", ignoreCase = true)
         } ?: return null
@@ -261,8 +274,6 @@ public class AppUpdater(
         e.message?.takeIf { it.isNotBlank() } ?: (e::class.simpleName ?: "Unknown failure")
 
     public companion object {
-        public const val DEFAULT_REPOSITORY: String = "aman-dhakar-191/AndroPilot"
-
         /**
          * Packs a semantic version into the single increasing integer Android compares.
          * Must match the scheme in `demo/build.gradle.kts`, or an update will look older

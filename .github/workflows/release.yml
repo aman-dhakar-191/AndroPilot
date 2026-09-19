@@ -67,6 +67,7 @@ jobs:
             -Pandropilot.version=${{ steps.version.outputs.value }} \
             :andropilot-core:jar \
             :andropilot-android:assembleRelease \
+            :andropilot-devtools:assembleRelease \
             :demo:assembleRelease \
             --stacktrace
 
@@ -87,6 +88,7 @@ jobs:
           # quietly publishing a release with nothing in it.
           cp "core/build/libs/andropilot-core-$V.jar" "dist/andropilot-core-$V.jar"
           cp "android/build/outputs/aar/andropilot-android-release.aar" "dist/andropilot-android-$V.aar"
+          cp "devtools/build/outputs/aar/andropilot-devtools-release.aar" "dist/andropilot-devtools-$V.aar"
           cp "demo/build/outputs/apk/release/demo-release.apk" "dist/andropilot-demo-$V.apk"
           echo "Release artifacts:"
           ls -la dist
@@ -106,6 +108,9 @@ jobs:
             - `andropilot-core-*.jar` — the pure-Kotlin perception, matching and action
               layer. No Android dependency; usable in JVM tests and in a remote agent host.
             - `andropilot-android-*.aar` — the AccessibilityService-backed driver.
+            - `andropilot-devtools-*.aar` — optional sideload updater. Separate on purpose:
+              it needs network access and, in the consuming app, an install permission that
+              the SDK itself never requests.
             - `andropilot-demo-*.apk` — the inspector app, for validating the SDK on a
               device. Debug-signed; not for distribution.
 

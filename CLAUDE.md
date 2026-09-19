@@ -69,13 +69,17 @@ Three build decisions look like bugs and are not. Do not "fix" them:
 - **The demo's versionCode packing is duplicated** in `demo/build.gradle.kts` and
   `AppUpdater.versionCodeOf`. If they diverge, a newer release looks older than what is
   installed and the in-app update is silently never offered.
-- **The updater lives in the demo, never the SDK.** It needs `INTERNET` and
-  `REQUEST_INSTALL_PACKAGES`; the SDK must acquire neither. An automation library that could
-  also download and install packages is a different and far more dangerous thing.
+- **The updater lives in `:andropilot-devtools`, never the SDK, and depends on neither.**
+  An automation library that could also download and install packages is a different and far
+  more dangerous thing, so combining them stays an explicit choice a consumer makes by adding
+  the dependency. The module declares `INTERNET` but deliberately NOT
+  `REQUEST_INSTALL_PACKAGES` -- a library manifest merges into every consumer, and no app
+  should inherit an install permission it did not ask for.
 
 ## Gotchas discovered the hard way
 
-- **XML comments cannot contain `--`.** The manifest merger fails to parse the file and the
+- **XML comments cannot contain `--`.** The `xml` CI job catches this in seconds; the
+  manifest merger otherwise reports it minutes into a Gradle run. The manifest merger fails to parse the file and the
   Android build dies before compiling anything. Avoid the em-dash-as-`--` habit in `.xml`.
 - **The Android modules cannot be compiled in sandboxes where `dl.google.com` is blocked**
   (AGP is unresolvable). Verify them via CI rather than assuming a local failure is a code bug.

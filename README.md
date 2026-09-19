@@ -51,6 +51,9 @@ rewrite.
 andropilot-core      Pure Kotlin/JVM. Models, selectors, matching, actions, verification,
                      safety, tool codec, and a fake driver for consumer tests.
 andropilot-android   AccessibilityService-backed UiDriver, plus the AndroPilot facade.
+andropilot-devtools  Optional. A sideload updater for apps distributed outside a store.
+                     Separate from the SDK because it needs network access and, in the
+                     consuming app, an install permission the SDK never requests.
 demo                 An inspector app for validating the SDK on a real device.
 ```
 

@@ -1,4 +1,4 @@
-package com.andropilot.demo.update
+package com.andropilot.devtools.update
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
@@ -11,7 +11,7 @@ import kotlinx.coroutines.launch
 /** Drives the update card. Holds no logic of its own beyond sequencing [AppUpdater]. */
 public class UpdateViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val updater = AppUpdater(application)
+    private val updater = AppUpdater(application, AppUpdates.requireRepository())
 
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Idle)
     public val state: StateFlow<UpdateState> = _state.asStateFlow()

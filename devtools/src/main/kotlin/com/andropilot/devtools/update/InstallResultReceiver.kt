@@ -1,4 +1,4 @@
-package com.andropilot.demo.update
+package com.andropilot.devtools.update
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -35,8 +35,11 @@ public class InstallResultReceiver : BroadcastReceiver() {
 
             PackageInstaller.STATUS_SUCCESS -> {
                 // The new APK is live; the copy that produced it is now dead weight.
-                runCatching { AppUpdater(context.applicationContext).cleanUpDownloads() }
-                toast(context, "AndroPilot Inspector updated.")
+                runCatching {
+                    AppUpdater(context.applicationContext, AppUpdates.requireRepository())
+                        .cleanUpDownloads()
+                }
+                toast(context, "Update installed.")
             }
 
             PackageInstaller.STATUS_FAILURE_CONFLICT -> toast(
@@ -61,7 +64,7 @@ public class InstallResultReceiver : BroadcastReceiver() {
 
     public companion object {
         public const val ACTION_INSTALL_STATUS: String =
-            "com.andropilot.demo.action.INSTALL_STATUS"
+            "com.andropilot.devtools.action.INSTALL_STATUS"
         public const val EXTRA_SESSION_ID: String = "session_id"
         private const val TAG = "AndroPilot-update"
     }

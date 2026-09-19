@@ -36,8 +36,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.andropilot.android.AndroPilot
 import com.andropilot.core.model.UiElement
 import com.andropilot.core.safety.ConfirmationOutcome
-import com.andropilot.demo.update.UpdateState
-import com.andropilot.demo.update.UpdateViewModel
+import com.andropilot.devtools.update.UpdateState
+import com.andropilot.devtools.update.UpdateViewModel
 
 /**
  * A developer tool, not a product.

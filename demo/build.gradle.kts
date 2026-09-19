@@ -85,6 +85,7 @@ kotlin {
 
 dependencies {
     implementation(project(":andropilot-android"))
+    implementation(project(":andropilot-devtools"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)

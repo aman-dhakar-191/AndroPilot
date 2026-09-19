@@ -38,6 +38,8 @@ val androidSdkDir: String? = System.getenv("ANDROID_HOME")?.takeIf(String::isNot
 if (androidSdkDir != null && file(androidSdkDir).isDirectory) {
     include(":andropilot-android")
     project(":andropilot-android").projectDir = file("android")
+    include(":andropilot-devtools")
+    project(":andropilot-devtools").projectDir = file("devtools")
     include(":demo")
     project(":demo").projectDir = file("demo")
 } else {

@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Needed to read release metadata and download the APK. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      REQUEST_INSTALL_PACKAGES is deliberately NOT declared here.
+
+      A library manifest merges into every app that depends on it, so declaring it would
+      hand an install-packages permission to consumers who never asked for one. Google Play
+      restricts that permission heavily, and an app that can install packages is a bigger
+      target. Declaring it stays the consuming app's explicit, visible decision; until it
+      does, AppUpdater.install returns NeedsPermission and says so.
+    -->
+
+    <application>
+        <receiver
+            android:name="com.andropilot.devtools.update.InstallResultReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.andropilot.devtools.action.INSTALL_STATUS" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

@@ -361,6 +361,64 @@ println(session.lastSnapshot()?.toCompactText())   // exactly what an agent woul
 Or install the demo app (`:demo`), which surfaces all of this on-device: the live element
 list, the compact rendering an agent receives, the action trace, and the confirmation queue.
 
+## Keeping a sideloaded app up to date
+
+**Skip this if your app ships through Play or your own pipeline.** It exists for apps
+distributed as APKs, where there is no store to do the updating.
+
+`:andropilot-devtools` is a separate artifact from the SDK, and the separation is the point:
+it needs network access, and in your app it needs an install permission the SDK itself never
+requests. Combining automation with the ability to install packages should be a decision you
+make deliberately, by adding this dependency, rather than something you inherit.
+
+```kotlin
+dependencies {
+    implementation("com.andropilot:andropilot-devtools:0.0.3")
+}
+```
+
+```kotlin
+// Application.onCreate
+AppUpdates.configure("your-org/your-repo")
+```
+
+```kotlin
+// wherever you want the UI
+val updates: UpdateViewModel = viewModel()
+when (val state = updates.state.collectAsStateWithLifecycle().value) {
+    is UpdateState.Available     -> Button({ updates.download(state.release) }) { Text("Download") }
+    is UpdateState.ReadyToInstall -> Button({ updates.install(state) }) { Text("Install") }
+    else -> Button(updates::check) { Text("Check for updates") }
+}
+```
+
+Your manifest must declare the permission. The library does not declare it for you:
+
+```xml
+<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+```
+
+Until it does, `install` returns `UpdateState.NeedsPermission` and says what is missing.
+
+### Two things it will not do
+
+**It never installs silently.** The APK goes to Android's `PackageInstaller`, which shows its
+own confirmation, and the user approves it. If your app also runs the AndroPilot accessibility
+service, do not point it at that dialog: something that can both choose what to install and
+tap "Install" is a malware primitive regardless of what you meant by it.
+
+**It cannot update an app whose signature changed.** Android refuses, which surfaces as "App
+not installed as package conflicts with an existing package". Every build has to be signed
+with the same key. AGP's default `debug` config generates one per machine, so CI-built APKs
+are each signed differently unless you supply a stable keystore — see
+`demo/build.gradle.kts`. Changing key means one manual uninstall.
+
+### Version codes
+
+The updater compares the release tag against your installed `versionCode`, packing
+`major.minor.patch` into `major * 10000 + minor * 100 + patch`. Your build must use the same
+scheme or a newer release will look older and never be offered.
+
 ## A note on the `.jar`
 
 `andropilot-core-<version>.jar` is a JVM library you compile against. It is not something a
