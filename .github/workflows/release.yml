@@ -5,9 +5,16 @@ on:
     tags: ["v*"]
   workflow_dispatch:
     inputs:
+      bump:
+        description: "How much to raise the last released version"
+        type: choice
+        required: false
+        default: auto
+        options: [auto, patch, minor, major]
       version:
-        description: "Version to release, without the leading v (e.g. 0.1.0)"
-        required: true
+        description: "Exact version, without the leading v. Leave empty to use the bump above."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -17,7 +24,11 @@ jobs:
     name: Build and publish
     runs-on: ubuntu-latest
     steps:
+      # fetch-depth: 0 because the version is derived from the tags and the commits since
+      # the last one. A shallow clone has neither.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
         with:
@@ -69,14 +80,89 @@ jobs:
             echo "No ANDROPILOT_KEYSTORE_BASE64 secret; using the checked-in development key."
           fi
 
+      # Works out what to call this release so a human does not have to.
+      #
+      # A tag push still wins outright -- the tag IS the version, and second-guessing it
+      # would make the two entry points disagree. Everything below is for the manual run.
+      #
+      # The default is a patch bump, and that default carries the weight here: this
+      # project's commit subjects are imperative prose by design ("Fix the manifest
+      # comment"), not conventional-commit prefixes, so there is nothing in a normal commit
+      # to infer a major or a minor from. Rather than pretend otherwise, a release that is
+      # more than a patch says so explicitly -- either with the dropdown on the run, or with
+      # a `Release: minor` / `Release: major` trailer in the commit that earned it, which is
+      # the honest place to record it because that is where the reason lives.
+      #
+      # Inputs travel through env rather than ${{ }} interpolation: a free-text input
+      # pasted straight into a shell script is a command injection waiting for the day
+      # somebody else can press the button.
       - name: Resolve the version
         id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BUMP: ${{ inputs.bump }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "value=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+
+          if [ "$EVENT" != "workflow_dispatch" ]; then
+            V="${GITHUB_REF_NAME#v}"
+          elif [ -n "${INPUT_VERSION:-}" ]; then
+            V="${INPUT_VERSION#v}"
           else
-            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            LAST="$(git tag --list 'v*' --sort=-v:refname | head -1)"
+            if [ -z "$LAST" ]; then
+              V="0.0.1"
+              echo "No previous tag; starting at $V."
+            else
+              BASE="${LAST#v}"
+              BASE="${BASE%%-*}"
+              MAJOR="$(echo "$BASE" | cut -d. -f1)"
+              MINOR="$(echo "$BASE" | cut -d. -f2)"
+              PATCH="$(echo "$BASE" | cut -d. -f3)"
+
+              BUMP="${INPUT_BUMP:-auto}"
+              if [ "$BUMP" = "auto" ]; then
+                MESSAGES="$(git log --format='%B' "$LAST..HEAD")"
+                if echo "$MESSAGES" | grep -qiE '^[[:space:]]*(Release:[[:space:]]*major|BREAKING CHANGE)'; then
+                  BUMP=major
+                elif echo "$MESSAGES" | grep -qiE '^[[:space:]]*Release:[[:space:]]*minor'; then
+                  BUMP=minor
+                else
+                  BUMP=patch
+                fi
+                echo "Nothing asked for more, so: $BUMP."
+              fi
+
+              case "$BUMP" in
+                major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+                minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+                patch) PATCH=$((PATCH + 1)) ;;
+                *) echo "::error::Unknown bump '$BUMP'."; exit 1 ;;
+              esac
+              V="$MAJOR.$MINOR.$PATCH"
+              echo "$LAST -> v$V ($BUMP, from $(git rev-list --count "$LAST..HEAD") commits)."
+            fi
           fi
+
+          # minor and patch are packed into one versionCode as major*10000 + minor*100 +
+          # patch, so either reaching 100 would make a newer build look older and the in-app
+          # update would silently never be offered. Fail here instead, loudly.
+          MINOR_CHECK="$(echo "$V" | cut -d. -f2)"
+          PATCH_CHECK="$(echo "$V" | cut -d. -f3 | cut -d- -f1)"
+          if [ "$MINOR_CHECK" -ge 100 ] || [ "$PATCH_CHECK" -ge 100 ]; then
+            echo "::error::$V breaks the versionCode packing (minor and patch must stay below 100)."
+            exit 1
+          fi
+
+          # An existing tag would fail the publish step much later and far less clearly.
+          if git rev-parse "v$V" >/dev/null 2>&1; then
+            echo "::error::v$V already exists. Pass an explicit version, or bump further."
+            exit 1
+          fi
+
+          echo "value=$V" >> "$GITHUB_OUTPUT"
+          echo "Releasing $V."
 
       # The version is passed to EVERY Gradle invocation in this job, not just the one that
       # builds the artifacts. `test` also produces core/build/libs/andropilot-core-<v>.jar,
