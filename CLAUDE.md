@@ -15,7 +15,7 @@ Bodies should say *why*, not restate the diff — the diff is already in the com
 ## Build
 
 ```bash
-./gradlew :andropilot-core:build            # core + 162 tests; needs NO Android SDK
+./gradlew :andropilot-core:build            # core + 167 tests; needs NO Android SDK
 ./gradlew :andropilot-android:assembleRelease   # needs an Android SDK
 ./gradlew :demo:assembleRelease
 ```
@@ -39,9 +39,13 @@ Three build decisions look like bugs and are not. Do not "fix" them:
 - **`andropilot-core` must never gain an Android dependency.** `UiDriver` is the platform
   boundary; everything above it is pure Kotlin and unit-testable without a device. If logic is
   worth testing, it belongs above that line.
-- **Element ids are tree paths, re-resolved against the live tree at dispatch.** Never cache an
-  `AccessibilityNodeInfo` across a suspension point. A path that no longer resolves must fail
-  as `STALE_ELEMENT`, never fall through to a coordinate tap.
+- **Element ids are short and opaque; the tree path lives in `UiSnapshot.nodeHandles`.**
+  The path is still what re-resolves against the live tree at dispatch, and a path that no
+  longer resolves must fail as `STALE_ELEMENT`, never fall through to a coordinate tap. Never
+  cache an `AccessibilityNodeInfo` across a suspension point. `nodeHandles` is `@Transient`
+  on purpose: ids travel to an agent, handles do not, so a caller cannot name a node the SDK
+  never reported. Anything that rebuilds a snapshot must carry or filter the table with the
+  elements -- losing it makes every action fail as stale.
 - **Actions never throw for expected conditions.** Every foreseeable problem is an
   `ActionResult.Failure` with a machine-readable `FailureReason`. Exceptions are for
   programming errors and cancellation only.

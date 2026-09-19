@@ -86,9 +86,10 @@ public enum class UiAction {
  * driver's job, keyed by [id] within the owning snapshot (see
  * [com.andropilot.core.driver.UiDriver]).
  *
- * @property id Stable-within-snapshot handle. Also carries structural information (see
- *   [com.andropilot.core.model.UiSnapshot] for how ids are assigned) so that a "stale"
- *   element can often be re-resolved in a later snapshot.
+ * @property id Stable within its snapshot and meaningless outside it. Short on purpose: it
+ *   appears on every line an agent reads, and an id that encoded the element's position in
+ *   the tree cost around a third of the rendered screen. How the driver finds the element
+ *   again is [com.andropilot.core.model.UiSnapshot.nodeHandles], which agents never see.
  */
 @Serializable
 public data class UiElement(

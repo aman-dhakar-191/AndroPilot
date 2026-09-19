@@ -31,6 +31,20 @@ public data class UiSnapshot(
     @SerialName("keyboard_visible") val keyboardVisible: Boolean = false,
     /** Set when perception was degraded, e.g. the a11y tree was empty or truncated. */
     val warnings: List<String> = emptyList(),
+    /**
+     * Whatever the driver needs to find each element again, keyed by [UiElement.id].
+     *
+     * Opaque to everything above [com.andropilot.core.driver.UiDriver]: nothing here
+     * interprets it, and only the driver that produced a snapshot can act on its entries.
+     *
+     * Deliberately `@Transient`. Element ids travel to an agent; these do not, because they
+     * are meaningless anywhere but the device that issued them. A remote agent naming an
+     * element is resolved against the device's own copy of the snapshot, so the round trip
+     * still works -- and an id the driver never issued resolves to nothing rather than to
+     * whatever a caller-supplied string happens to point at.
+     */
+    @Transient
+    val nodeHandles: Map<String, String> = emptyMap(),
 ) {
     @Transient
     private val byId: Map<String, UiElement> = elements.associateBy { it.id }

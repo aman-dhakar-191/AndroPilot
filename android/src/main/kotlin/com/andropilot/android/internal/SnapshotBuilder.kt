@@ -51,6 +51,7 @@ internal class SnapshotBuilder(
         val elements = ArrayList<UiElement>(64)
         val warnings = ArrayList<String>(2)
         val counter = IntArray(1)
+        val handles = LinkedHashMap<String, String>()
 
         traverse(
             node = rootNode,
@@ -60,6 +61,7 @@ internal class SnapshotBuilder(
             out = elements,
             counter = counter,
             warnings = warnings,
+            handles = handles,
         )
 
         if (elements.isEmpty()) {
@@ -80,15 +82,21 @@ internal class SnapshotBuilder(
             hasDialog = hasDialog,
             keyboardVisible = keyboardVisible,
             warnings = warnings,
+            nodeHandles = handles,
         )
     }
 
     /**
-     * Depth-first walk that assigns ids by tree path.
+     * Depth-first walk, assigning each retained node a short id and recording the tree path
+     * the driver needs to find it again.
      *
-     * Path-based ids ("0.3.1") are stable for as long as the structure is, which lets the
-     * driver re-resolve an element by walking the same path instead of holding a node
-     * reference that goes stale the moment the app recomposes.
+     * Returns the id it assigned, or null when the node dropped itself. Callers use that to
+     * link children, so a dropped node is never referenced by its parent.
+     *
+     * The path stays index-based ("0.3.1") because that is what re-resolves against a live
+     * tree, and re-resolving is what makes a changed screen fail as STALE_ELEMENT instead of
+     * acting on whatever moved into the slot. It simply no longer doubles as the id: an
+     * agent reads ids on every line and gains nothing from the tree position.
      */
     private fun traverse(
         node: AccessibilityNodeInfo,
@@ -98,29 +106,36 @@ internal class SnapshotBuilder(
         out: MutableList<UiElement>,
         counter: IntArray,
         warnings: MutableList<String>,
+        handles: MutableMap<String, String>,
         path: String = "0",
-    ) {
+    ): String? {
         if (depth > maxDepth) {
             if (warnings.none { it.startsWith("The hierarchy exceeded") }) {
                 warnings += "The hierarchy exceeded $maxDepth levels and was truncated."
             }
-            return
+            return null
         }
         if (counter[0] >= maxNodes) {
             if (warnings.none { it.startsWith("More than") }) {
                 warnings += "More than $maxNodes nodes were present; the tree was truncated."
             }
-            return
+            return null
         }
         counter[0]++
 
+        // Derived from the node budget counter, which only ever increments. Reusing
+        // handles.size would also produce dense ids, but only because a dropped node is
+        // always the most recently added one -- an invariant a later edit could break
+        // silently. Gaps where a node dropped itself cost nothing; a collision would not.
+        val id = "e${counter[0]}"
         val childIds = ArrayList<String>(node.childCount.coerceAtMost(64))
-        val element = toElement(node, path, parentId, depth, metrics, childIds)
+        val element = toElement(node, id, parentId, depth, metrics, childIds)
 
         // Reserve this node's slot before recursing, so children land after it in traversal
         // order. Whether it earns the slot cannot be decided until the subtree is filtered.
         val insertAt = out.size
         out.add(element)
+        handles[id] = path
 
         for (i in 0 until node.childCount) {
             val child = try {
@@ -129,11 +144,18 @@ internal class SnapshotBuilder(
                 null
             } ?: continue
             try {
-                val childPath = "$path.$i"
-                val before = out.size
-                traverse(child, path, depth + 1, metrics, out, counter, warnings, childPath)
-                // A child that dropped itself leaves the list unchanged, and so is not linked.
-                if (out.size > before) childIds += childPath
+                val childId = traverse(
+                    node = child,
+                    parentId = id,
+                    depth = depth + 1,
+                    metrics = metrics,
+                    out = out,
+                    counter = counter,
+                    warnings = warnings,
+                    handles = handles,
+                    path = "$path.$i",
+                )
+                if (childId != null) childIds += childId
             } finally {
                 @Suppress("DEPRECATION")
                 runCatching { child.recycle() }
@@ -144,10 +166,15 @@ internal class SnapshotBuilder(
             // Nothing survived below it, so its slot is still the last one: removing it here
             // cannot disturb anything already emitted.
             out.removeAt(insertAt)
-            return
+            handles.remove(id)
+            return null
         }
 
+        // `childIds` is a mutable list that was also handed to `toElement`, so it is copied
+        // here rather than aliased: a UiElement is documented as an immutable value and is
+        // shared with callers, including across serialization.
         out[insertAt] = element.copy(childIds = childIds.toList())
+        return id
     }
 
     private fun toElement(

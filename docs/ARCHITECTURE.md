@@ -29,9 +29,17 @@ pluggable visual fallback.
 
 **Node handles go stale, constantly.** `AccessibilityNodeInfo` references are invalidated by
 recomposition, scrolling, and window changes. Holding one across an await is a bug. Hence:
-elements are immutable value objects with *path-based ids*, and the driver re-resolves the
-path against the live tree at dispatch time. If the path no longer resolves, the action fails
-as `STALE_ELEMENT` rather than landing on whatever now occupies that position.
+elements are immutable value objects, and the driver re-resolves a tree path against the live
+tree at dispatch time. If the path no longer resolves, the action fails as `STALE_ELEMENT`
+rather than landing on whatever now occupies that position.
+
+That path is *not* the element id. Ids appear on every line an agent reads, and a real
+`com.android.settings` capture rendered them at thirty characters apiece —
+`[0.0.0.0.0.0.0.0.0.1.1.0.10.1.0]` — roughly a third of the payload, spent on the element's
+position in a tree the agent never sees. Ids are now short (`e12`) and the paths live in
+`UiSnapshot.nodeHandles`, a `@Transient` table the driver writes and reads and nothing else
+interprets. Ids travel to an agent; handles do not, so an id the driver never issued resolves
+to nothing rather than being walked as a caller-supplied path.
 
 **Gestures fail in specific, reproducible ways.** A swipe starting in the navigation bar is
 taken by the system; one starting at a screen edge triggers back-navigation; one shorter than
@@ -69,7 +77,7 @@ Everything that decides *whether automation is correct* is above the `UiDriver` 
 no Android dependency. That is the single most consequential decision in the project, and it
 buys three things:
 
-1. **Testability.** 162 unit tests covering matching, ambiguity, gesture geometry, change
+1. **Testability.** 167 unit tests covering matching, ambiguity, gesture geometry, change
    detection, retry, fallback and safety run in seconds on any JVM with no emulator.
 2. **A real extension point.** A remote-control transport, a second platform, or a record/
    replay harness is a new `UiDriver` implementation, not a fork.
