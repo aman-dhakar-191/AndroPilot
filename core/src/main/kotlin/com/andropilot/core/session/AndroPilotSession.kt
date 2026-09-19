@@ -77,8 +77,24 @@ public interface AndroPilotSession {
     /** Resolves a selector against the current screen without acting. */
     public suspend fun find(selector: Selector): MatchResult
 
-    /** Answers a pending confirmation raised by the safety policy. */
-    public suspend fun resolveConfirmation(id: String, outcome: ConfirmationOutcome)
+    /**
+     * Answers a pending confirmation, and on approval runs the action it was holding.
+     *
+     * Returns that action's result, or null if the confirmation was rejected or unknown.
+     *
+     * The action is re-run rather than resumed, and the difference matters. A human takes
+     * seconds to answer, and in that time a list can scroll or a dialog can appear.
+     * Re-running re-observes the screen and re-resolves the selector against what is on it
+     * now, so an approval cannot be spent on geometry that has since moved -- the same
+     * reason the SDK never caches a node across a suspension point. If the screen did
+     * change enough that the target is no longer the one described, the returned result is
+     * another [com.andropilot.core.action.FailureReason.CONFIRMATION_REQUIRED], which is
+     * the honest answer rather than a silent substitution.
+     */
+    public suspend fun resolveConfirmation(
+        id: String,
+        outcome: ConfirmationOutcome,
+    ): ActionResult?
 
     /** Confirmations currently awaiting a host decision. */
     public fun pendingConfirmations(): List<com.andropilot.core.action.PendingConfirmation>

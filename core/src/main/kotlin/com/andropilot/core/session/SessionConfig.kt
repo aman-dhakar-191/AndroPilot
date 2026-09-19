@@ -27,6 +27,14 @@ public data class SessionConfig(
     public val postActionDelayMs: Long = 120,
     /** Default timeout for [com.andropilot.core.action.AgentAction.WaitFor]. */
     public val defaultWaitTimeoutMs: Long = 5_000,
+    /**
+     * How long an approval stays usable after a human grants it.
+     *
+     * An approval authorises one action on one target, and a human answering a prompt is
+     * authorising what they were shown *then*. Without a bound, an approval nobody redeemed
+     * would sit indefinitely and silently let an identical action through much later.
+     */
+    public val confirmationValidityMs: Long = 120_000,
     /** How many times an element-targeting action retries after a transient failure. */
     public val maxRetries: Int = 2,
     /** Delay before each retry; doubles per attempt. */

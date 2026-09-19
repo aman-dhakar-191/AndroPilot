@@ -146,13 +146,29 @@ if (result is ActionResult.Failure &&
     val confirmation = result.pendingConfirmation!!
     // confirmation.description is already redacted and safe to show a human.
     val approved = showDialog(confirmation.description, confirmation.reasons)
-    session.resolveConfirmation(
+
+    // Approving runs the action. Returns null if rejected.
+    val outcome = session.resolveConfirmation(
         confirmation.id,
         if (approved) ConfirmationOutcome.APPROVED else ConfirmationOutcome.REJECTED,
     )
-    if (approved) session.click(Selector.text("Send"))  // repeat; the approval is single-use
 }
 ```
+
+The action is **re-run, not resumed**, and that is deliberate. A human takes seconds to
+answer, and in that time a list can scroll or a dialog can appear. Re-running re-observes the
+screen and re-resolves the selector against what is on it now, so an approval is never spent
+on geometry that has since moved — the same reason the SDK never caches a node across a
+suspension point.
+
+If the screen did change enough that the target is no longer the one described, what comes
+back is another `CONFIRMATION_REQUIRED` rather than a silent substitution. Ask again; that is
+the honest answer.
+
+An approval covers **one action on one target**, is consumed when used, and expires after
+`confirmationValidityMs` (two minutes by default). A person approving a prompt is authorising
+what they were shown then, so an approval nobody redeemed must not sit around authorising an
+identical action much later.
 
 ## Configuring policy
 
