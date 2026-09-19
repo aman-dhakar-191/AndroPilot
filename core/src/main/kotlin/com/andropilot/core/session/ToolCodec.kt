@@ -35,13 +35,8 @@ public data class ToolDescriptor(
  */
 public object ToolCodec {
 
-    public val json: Json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-        explicitNulls = false
-        classDiscriminator = "type"
-        prettyPrint = false
-    }
+    /** The SDK-wide JSON configuration. See [com.andropilot.core.util.AndroPilotJson]. */
+    public val json: Json get() = com.andropilot.core.util.AndroPilotJson.instance
 
     private val prettyJson: Json = Json(json) { prettyPrint = true }
 

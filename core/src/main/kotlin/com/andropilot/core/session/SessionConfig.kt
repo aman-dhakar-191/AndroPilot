@@ -52,6 +52,14 @@ public data class SessionConfig(
     public val allowTextInLogs: Boolean = false,
     /** Size of the in-memory action trace ring. */
     public val traceCapacity: Int = 200,
+    /**
+     * Optional on-device recorder. Off by default.
+     *
+     * When set, every action result is appended to it as JSON Lines. This is a local
+     * development aid -- nothing leaves the device -- and it redacts screen text unless the
+     * recorder was built with [com.andropilot.core.observe.RecordingOptions.includeText].
+     */
+    public val recorder: com.andropilot.core.observe.TraceRecorder? = null,
     /** Cap on elements included in a snapshot; deepest/least useful nodes are dropped first. */
     public val maxElements: Int = 400,
 ) {

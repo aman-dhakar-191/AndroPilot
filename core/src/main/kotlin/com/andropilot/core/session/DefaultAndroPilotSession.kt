@@ -129,6 +129,8 @@ public class DefaultAndroPilotSession(
             fail(action, startedAt, FailureReason.INTERNAL_ERROR, e.message ?: e::class.simpleName.orEmpty())
         }
         trace.record(result, startedAt)
+        // A recorder is a debugging aid; one that broke automation would be worse than none.
+        config.recorder?.let { recorder -> runCatching { recorder.record(result) } }
         _results.tryEmit(result)
         return result
     }

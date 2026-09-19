@@ -15,7 +15,7 @@ Bodies should say *why*, not restate the diff — the diff is already in the com
 ## Build
 
 ```bash
-./gradlew :andropilot-core:build            # core + 134 tests; needs NO Android SDK
+./gradlew :andropilot-core:build            # core + 143 tests; needs NO Android SDK
 ./gradlew :andropilot-android:assembleRelease   # needs an Android SDK
 ./gradlew :demo:assembleRelease
 ```
@@ -47,6 +47,11 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   programming errors and cancellation only.
 - **Redaction is opt-out.** Screen text and typed values never reach logs unless a host sets
   `allowTextInLogs`. This component can read every screen.
+- **The recorder is a local tool, never telemetry.** `TraceRecorder` writes to a file the
+  host chooses and nothing else. The SDK has no network code; do not add any. Its default is
+  to withhold every field that could contain screen content, including the prose the SDK
+  composes from a screen (match reasons, diff summaries, failure messages), not just the
+  snapshot.
 - **Ambiguity is reported, not guessed.** Two equally good matches produce `AMBIGUOUS_TARGET`
   with both candidates.
 

@@ -192,6 +192,8 @@ private fun InspectorScreen(viewModel: InspectorViewModel = viewModel()) {
                 }
             }
 
+            item { TraceCard() }
+
             item {
               Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionTitle("What the agent would receive")
@@ -274,6 +276,71 @@ private fun ElementRow(element: UiElement, highlighted: Boolean) {
                 style = MaterialTheme.typography.labelSmall,
             )
         }
+    }
+}
+
+/**
+ * Surfaces the on-device trace file.
+ *
+ * Every action the SDK runs is appended here as JSON Lines, which is what makes a real
+ * device session inspectable afterwards instead of only while you are watching it.
+ */
+@Composable
+private fun TraceCard() {
+    val context = LocalContext.current
+    val file = DemoApplication.traceFile
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Recorded trace", style = MaterialTheme.typography.titleMedium)
+            if (file == null) {
+                Text(
+                    "Recording is not configured for this build.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            } else {
+                val bytes = if (file.exists()) file.length() else 0L
+                Text(
+                    "${bytes / 1024} KB at ${file.absolutePath}",
+                    fontFamily = FontFamily.Monospace,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                Text(
+                    "One JSON object per action, including the screen the SDK perceived. " +
+                        "This build records screen text, so treat the file as you would a " +
+                        "screenshot.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { shareTrace(context, file) }, enabled = bytes > 0) {
+                        Text("Share")
+                    }
+                    OutlinedButton(
+                        onClick = { runCatching { file.writeText("") } },
+                        enabled = bytes > 0,
+                    ) { Text("Clear") }
+                }
+            }
+        }
+    }
+}
+
+private fun shareTrace(context: android.content.Context, file: java.io.File) {
+    runCatching {
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.traces",
+            file,
+        )
+        context.startActivity(
+            android.content.Intent.createChooser(
+                android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "application/json"
+                    putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                    addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                },
+                "Share AndroPilot trace",
+            ),
+        )
     }
 }
 

@@ -246,6 +246,59 @@ Build your own screens with the `Ui` builders (`Ui.button`, `Ui.field`, `Ui.list
 start from `FakeScreens.login()`, `.settingsList()`, `.duplicateButtons()`,
 `.confirmDialog()`, `.opaqueCanvas()`.
 
+## Recording a session to a file
+
+The fastest way to improve an agent is to look at what the SDK actually perceived on a real
+screen. Point the session at a file and every action is appended as JSON Lines.
+
+```kotlin
+val trace = File(context.getExternalFilesDir(null), "andropilot-trace.jsonl")
+
+AndroPilot.initialize(
+    this,
+    SessionConfig(
+        recorder = TraceRecorder.toFile(trace),
+    ),
+)
+```
+
+```bash
+adb pull /sdcard/Android/data/<your.package>/files/andropilot-trace.jsonl
+jq -r 'select(.ok == false) | "\(.action) \(.reason)"' andropilot-trace.jsonl
+jq -r 'select(.kind == "action") | .elements' andropilot-trace.jsonl   # hierarchy sizes
+```
+
+JSON Lines, not one JSON document: the file stays valid after a crash, appends need no
+rewriting, and `grep`, `jq` and `wc -l` work on it directly.
+
+**This is a local development tool, not telemetry.** Nothing leaves the device — the SDK has
+no network code and no reporting endpoint.
+
+### What gets written
+
+By default the recorder writes only fields that cannot contain screen content: the action,
+outcome, reason, timing, interaction mode, element counts, and a snapshot stripped of text,
+content descriptions, hints and the window title. Roles, bounds, resource ids, flags and
+tree structure survive, which is everything needed to analyse how well the SDK perceives a
+screen and nothing that identifies whose screen it was.
+
+That extends past the snapshot, because the SDK composes prose *from* the screen: a match
+reason quotes the text it matched, a diff summary names the labels that appeared, a failure
+message lists candidates. Those are withheld too, and each record carries `"redacted": true`
+so you can tell which mode produced it.
+
+For a deeper debugging session on a device you control:
+
+```kotlin
+TraceRecorder.toFile(trace, RecordingOptions(includeText = true))
+```
+
+Now the file holds whatever was on screen — messages, account names, one-time codes. Treat
+it as you would a screenshot, and do not turn it on in a shipping build.
+
+Recording stops at `maxBytes` (8 MB by default) rather than filling the device, and writes a
+final line saying so. A failing writer never breaks automation.
+
 ## Debugging
 
 ```kotlin
