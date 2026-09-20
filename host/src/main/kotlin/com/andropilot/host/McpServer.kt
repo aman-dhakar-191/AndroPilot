@@ -160,7 +160,10 @@ public class McpServer(
         }.toString()
 
         val resultPayload = try {
-            bridge.execute(payload)
+            // The full document, not the summary: an MCP client is a program, and the
+            // summary exists for a model's context window rather than for a caller that
+            // can parse. The summary rides along for the loop that needs it.
+            bridge.execute(payload).payload
         } catch (e: Exception) {
             return text(e.message ?: "The device could not be reached.", isError = true)
         }

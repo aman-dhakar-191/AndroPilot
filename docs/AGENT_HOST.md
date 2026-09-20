@@ -43,6 +43,37 @@ stop.
 
 ## 3. Point a model at the host
 
+There are two ways, and they coexist. Which you want depends on where the model lives.
+
+### Your own model endpoint (the host drives)
+
+If you already run a gateway or router on your machine — anything that speaks the OpenAI
+chat-completions shape — the host can drive the device itself:
+
+```bash
+export ANDROPILOT_MODEL_KEY=...       # not --model-key: an argument is in the process list
+./host/build/install/andropilot-host/bin/andropilot-host \
+    --token "$TOKEN" --skills ./skills \
+    --model-endpoint http://localhost:4000/v1 \
+    --model your-model-name \
+    --goal "turn on wi-fi"
+```
+
+Leave `--goal` off for an interactive prompt: type a task, watch it run, type another,
+without dropping the connection to the phone.
+
+The loop asks your endpoint what to do, runs the tool calls it comes back with, feeds the
+results in, and repeats until the model replies with plain text and no tool call. It stops
+at `--max-steps` (40 by default) regardless — a model that has misread a screen will keep
+trying, and this is somebody's actual phone.
+
+Nothing about the model is compiled in. Endpoint, key and model name are configuration, the
+same as the phone's endpoint, and the code path behind them is a `ModelClient` interface
+with one implementation, so a differently-shaped backend is another adapter rather than a
+rewrite.
+
+### An MCP client (the client drives)
+
 The host speaks MCP over stdio, so any MCP client can drive the device:
 
 ```json
@@ -136,10 +167,18 @@ localhost is allowed, because self-hosting on a LAN is the case this was built f
 
 ### Judging whether the model decided correctly
 
-The records give you action-and-outcome and the before/after of the screen. They do not
-give you *intent*, and correctness is intent against outcome — without it you have a crash
-log. Have the agent emit its stated goal for each step as an `AgentEvent.Note`; those
-travel the same path as everything else.
+The records give you action-and-outcome, the before/after of the screen, **and intent** —
+the last one only when the host's own loop is driving.
+
+Intent is the piece that makes a run reviewable rather than merely logged. An action cannot
+tell you afterwards whether a tap was the right one or a guess; only the model's stated
+reason can. So each step's reasoning travels down to the phone and is emitted as an
+`AgentEvent.Note` (`kind=intent`, with the closing message as `kind=conclusion`), landing in
+the same ordered stream as the result it produced. Recording it on the device rather than
+host-side is what lines the two up.
+
+Driving through MCP instead, the client owns the model and its reasoning never reaches the
+host, so those notes are absent and you are back to action-and-outcome.
 
 Worth computing from the first day: failure rate by `FailureReason`, the `STALE_ELEMENT`
 rate (the reliability canary), the `AMBIGUOUS_TARGET` rate (the perception canary), steps

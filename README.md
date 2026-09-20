@@ -60,7 +60,8 @@ andropilot-telemetry Optional, pure Kotlin/JVM. Ships session records to a serve
                      The one component that sends anything off a device, and outside the
                      SDK for that reason.
 andropilot-host      Pure Kotlin/JVM. Runs on your machine: the bridge the phone dials
-                     into, an MCP server in front of it, and a telemetry ingest.
+                     into, an agent loop that drives it from a model endpoint you name,
+                     an MCP server in front of it, and a telemetry ingest.
 demo                 An inspector app for validating the SDK on a real device.
 andropilot-agent     An app that connects a device to a host you configure, so a model
                      running on your own machine can drive it.

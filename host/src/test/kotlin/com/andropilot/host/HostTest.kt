@@ -86,7 +86,7 @@ class HostTest {
         bridge().use { bridge ->
             FakeDevice(bridge.port, "secret", listOf(tool("observe"))) { """{"type":"success"}""" }.use {
                 assertTrue(bridge.awaitDevice(5_000))
-                assertEquals("""{"type":"success"}""", bridge.execute("""{"type":"observe"}"""))
+                assertEquals("""{"type":"success"}""", bridge.execute("""{"type":"observe"}""").payload)
                 assertEquals("""{"type":"observe"}""", it.lastRequest.get())
                 assertEquals("fake", bridge.device?.name)
             }

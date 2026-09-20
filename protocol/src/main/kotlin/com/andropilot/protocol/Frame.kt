@@ -64,10 +64,26 @@ public sealed interface Frame {
     @SerialName("action_request")
     public data class ActionRequest(val id: String, val payload: String) : Frame
 
-    /** The action's outcome. [payload] is a `ToolCodec` result document. */
+    /**
+     * The action's outcome. [payload] is a `ToolCodec` result document.
+     *
+     * [summary] is that same result rendered for a model to read, and it is produced on the
+     * **device**, not here. A full result carries an entire snapshot -- far too large to put
+     * in a model's context on every turn -- and the SDK already knows how to compact one.
+     * Rendering it host-side would mean parsing the payload, which is exactly what the host
+     * must not do: the device owns the action model, so the device owns how it reads.
+     *
+     * Null when the device is older than this field. A host then falls back to the raw
+     * payload, which is worse but not broken -- that is why this is an added optional field
+     * rather than a protocol version bump.
+     */
     @Serializable
     @SerialName("action_response")
-    public data class ActionResponse(val id: String, val payload: String) : Frame
+    public data class ActionResponse(
+        val id: String,
+        val payload: String,
+        val summary: String? = null,
+    ) : Frame
 
     /**
      * An `AgentEvent`, forwarded live.
@@ -78,6 +94,23 @@ public sealed interface Frame {
     @Serializable
     @SerialName("event")
     public data class Event(val payload: String) : Frame
+
+    /**
+     * Something for the device to record in its own event stream.
+     *
+     * The one frame that exists purely for observability. What a model is *trying* to do
+     * cannot be recovered from the actions it takes -- a tap is a tap whether it was the
+     * right one or a guess -- so the host sends its reasoning down and the device emits it
+     * as an `AgentEvent.Note`. That puts intent in the same ordered stream as the outcome,
+     * which is the only arrangement that lets anything afterwards judge whether a decision
+     * was correct rather than merely what happened.
+     */
+    @Serializable
+    @SerialName("note")
+    public data class Note(
+        val message: String,
+        val data: Map<String, String> = emptyMap(),
+    ) : Frame
 
     /**
      * Something went wrong at the transport level.
