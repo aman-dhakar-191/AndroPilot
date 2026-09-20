@@ -141,14 +141,37 @@ public class AgentLink(
                     // `wait_for` must not stop the socket from being read.
                     val result = runCatching { ToolCodec.executeJson(session, frame.payload) }
                     val payload = result.getOrElse { failure(it) }
-                    runCatching { socket.send(ProtocolJson.encode(Frame.ActionResponse(frame.id, payload))) }
+                    runCatching {
+                        socket.send(
+                            ProtocolJson.encode(
+                                Frame.ActionResponse(frame.id, payload, summarize(payload)),
+                            ),
+                        )
+                    }
                 }
+                // The host's model narrating what it is about to do. Recorded here rather
+                // than there so intent lands in the same ordered stream as the outcome,
+                // which is the only place anything downstream can line the two up.
+                is Frame.Note -> runCatching { session.note(frame.message, frame.data) }
                 is Frame.Welcome, is Frame.Error -> Unit
                 is Frame.Hello, is Frame.ToolsResponse, is Frame.ActionResponse, is Frame.Event ->
                     socket.send(ProtocolJson.encode(Frame.Error(null, "A host may not send ${frame::class.simpleName}.")))
             }
         }
     }
+
+    /**
+     * Renders a result the way a model should read it.
+     *
+     * Done here, on the device, because the host deliberately does not parse action
+     * documents -- and because a full result carries an entire snapshot, which is far too
+     * much to put in a model's context on every single turn. `summarizeForModel` is the
+     * SDK's own answer to that, so there is one compaction in the codebase rather than a
+     * second one that drifts.
+     */
+    private fun summarize(payload: String): String? = runCatching {
+        ToolCodec.summarizeForModel(ToolCodec.decodeResult(payload))
+    }.getOrNull()
 
     /**
      * Shapes an unexpected exception like a result.

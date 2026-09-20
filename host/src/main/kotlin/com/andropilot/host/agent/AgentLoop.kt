@@ -1,0 +1,155 @@
+package com.andropilot.host.agent
+
+import com.andropilot.host.AgentBridge
+import com.andropilot.host.Skills
+import kotlinx.serialization.json.Json
+
+/** How a run ended. */
+public data class RunOutcome(
+    val finished: Boolean,
+    /** The model's closing message, when it produced one. */
+    val message: String?,
+    val steps: Int,
+    val actions: Int,
+)
+
+/**
+ * Drives a device from a model, one step at a time.
+ *
+ * This is the piece that was missing. Everything else in the project either perceives a
+ * screen or carries bytes; nothing called a model. MCP does not fill that gap -- an MCP
+ * server answers a client that already owns a model, so pointing it at a model endpoint is
+ * backwards. A loop that calls out to an endpoint is the other half, and the two coexist:
+ * MCP for when a client like an IDE drives the phone, this for when the host does.
+ *
+ * What it does not do is decide what is allowed. The phone holds the `SafetyPolicy`, the
+ * model's tool calls go through it exactly as an MCP client's would, and nothing here can
+ * widen that. The model is the untrusted party in this arrangement -- it is text from a
+ * server, driving a real phone -- so the only privilege it gets is the one the device
+ * already granted.
+ */
+public class AgentLoop(
+    private val bridge: AgentBridge,
+    private val model: ModelClient,
+    private val skills: Skills,
+    /**
+     * A hard stop. A model that has misread a screen will keep trying, and a loop with no
+     * ceiling does that against somebody's actual phone.
+     */
+    private val maxSteps: Int = 40,
+    private val log: (String) -> Unit = { System.err.println(it) },
+) {
+
+    private val json = Json { ignoreUnknownKeys = true }
+
+    public fun run(goal: String): RunOutcome {
+        val tools = bridge.tools()
+        if (tools.isEmpty()) {
+            throw IllegalStateException(
+                "The device has not reported any tools. Connect the AndroPilot agent app first.",
+            )
+        }
+
+        val turns = mutableListOf<Turn>(
+            Turn.System(systemPrompt()),
+            Turn.User(goal),
+        )
+        bridge.note("Run started: $goal", mapOf("model" to model.describe))
+
+        var actions = 0
+        for (step in 1..maxSteps) {
+            val reply = model.complete(turns, tools)
+
+            // A reply with no tool calls is the model saying it is done, and its text is a
+            // conclusion rather than a plan. Recorded under a different kind so a later
+            // reading can tell "here is what I am about to do" from "here is what I think
+            // happened" without inferring it from position.
+            if (reply.isFinal) {
+                reply.text?.let {
+                    log("[model] $it")
+                    bridge.note(it, mapOf("step" to step.toString(), "kind" to "conclusion"))
+                }
+                bridge.note("Run finished after $actions action(s).", mapOf("outcome" to "finished"))
+                return RunOutcome(finished = true, message = reply.text, steps = step, actions = actions)
+            }
+
+            // Otherwise the model's own words are the only record of what it was *trying*
+            // to do. An action alone cannot say whether a tap was the right one or a guess,
+            // so this goes into the device's event stream next to the outcome it produced
+            // -- which is what makes it possible to ask later whether a decision was
+            // correct, rather than only what happened.
+            reply.text?.let {
+                log("[model] $it")
+                bridge.note(it, mapOf("step" to step.toString(), "kind" to "intent"))
+            }
+
+            turns += Turn.Assistant(reply.text, reply.toolCalls)
+
+            for (call in reply.toolCalls) {
+                val known = tools.any { it.name == call.name }
+                val content = if (!known) {
+                    // Answered rather than dropped: every tool_call has to come back with a
+                    // result or the next request is rejected, and telling the model the name
+                    // was wrong is more useful than failing the run.
+                    "FAILED [invalid_request] There is no tool called '${call.name}'. " +
+                        "Available: ${tools.joinToString { it.name }}."
+                } else {
+                    actions++
+                    val payload = actionPayload(call.name, call.argumentsJson, json)
+                    log("[action] ${call.name} $payload")
+                    val result = try {
+                        bridge.execute(payload)
+                    } catch (e: Exception) {
+                        null
+                    }
+                    result?.forModel
+                        ?: "FAILED [not_connected] The device could not be reached."
+                }
+                turns += Turn.ToolResult(call.id, call.name, content)
+            }
+        }
+
+        bridge.note("Run stopped at the $maxSteps step limit.", mapOf("outcome" to "step_limit"))
+        return RunOutcome(finished = false, message = null, steps = maxSteps, actions = actions)
+    }
+
+    /**
+     * Standing instructions.
+     *
+     * Deliberately about *this* device rather than about being helpful: the things a model
+     * gets wrong here are Android-specific and repeat every run. App notes are appended
+     * when there are any, because that knowledge belongs in front of the model rather than
+     * being rediscovered.
+     */
+    private fun systemPrompt(): String = buildString {
+        append(
+            """
+            You are driving a real Android phone through an accessibility service. Somebody
+            is holding this device; act like it.
+
+            How to work:
+            - Call `observe` before you act, and again after anything that may have changed
+              the screen. Element ids belong to one snapshot and are meaningless in the next.
+            - Prefer a semantic selector (the visible text, or a resource id) over
+              coordinates. Coordinates are a last resort and they break on other devices.
+            - Every tool reports either success or a machine-readable failure reason. Read it.
+              `element_not_found` after a scroll is different from `stale_element`, which is
+              different from `blocked_by_policy`, and retrying blindly helps in none of them.
+            - If something is below the fold, scroll before concluding it is absent.
+            - `ambiguous_target` means two things matched equally well. Do not pick one at
+              random -- look at the candidates and say which you meant.
+            - Some actions need a human to approve them on the device. If one comes back
+              needing confirmation, say so and stop; do not try to work around it.
+            - Say what you are about to do and why, in one line, before each step. That line
+              is recorded alongside the result and is what makes a run reviewable.
+
+            When the task is done, or you are stuck, reply with plain text and no tool call.
+            """.trimIndent(),
+        )
+        val notes = skills.all()
+        if (notes.isNotEmpty()) {
+            append("\n\nNotes on specific apps:\n")
+            notes.forEach { append("\n## ").append(it.packageName).append('\n').append(it.notes).append('\n') }
+        }
+    }
+}

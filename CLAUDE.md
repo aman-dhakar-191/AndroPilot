@@ -113,6 +113,28 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   the Disconnect action on it, are the point of putting it there rather than in the
   activity.
 
+- **Nothing in the SDK or on the phone ever calls a model; the host's loop does.** MCP
+  does not fill that gap and cannot: an MCP server answers a client that already owns a
+  model, so pointing one at a model endpoint is backwards. `AgentLoop` is the other half,
+  and both paths stay -- MCP when a client drives, the loop when the host does.
+- **The model is the untrusted party.** It is text from a server, driving a real phone.
+  Its tool calls go through the device's `SafetyPolicy` exactly as an MCP client's do,
+  nothing host-side can widen that, and `AgentLoop` has a hard step ceiling because a model
+  that has misread a screen will otherwise keep trying forever.
+- **Model endpoint, key and name are configuration, never compiled in**, and the code
+  behind them is the `ModelClient` interface. A provider-neutral SDK with a vendor wired
+  into the host in front of it would be neutral in name only. Prefer `ANDROPILOT_MODEL_KEY`
+  over the flag: an argument is readable by anything that can list processes.
+- **Intent is recorded on the device, not the host.** `Frame.Note` carries the model's
+  reasoning down so it becomes an `AgentEvent.Note` in the same ordered stream as the
+  outcome. Nothing afterwards can judge whether a decision was *correct* from the action
+  alone -- a tap looks identical whether it was reasoned or guessed -- and lining intent up
+  with outcome only works if they share one stream.
+- **Results are summarized on the device too.** `Frame.ActionResponse.summary` is
+  `ToolCodec.summarizeForModel`, produced where core lives. A full result carries an entire
+  snapshot and is far too large for a model's context every turn, and rendering it
+  host-side would mean parsing payloads the host deliberately treats as opaque.
+
 ## Release artifacts
 
 - **All demo builds are signed with `keystore/andropilot-dev.keystore`**, checked in on

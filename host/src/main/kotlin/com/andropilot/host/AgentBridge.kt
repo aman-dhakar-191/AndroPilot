@@ -13,6 +13,21 @@ import java.util.concurrent.SynchronousQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 
+/**
+ * What came back from running one action.
+ *
+ * Two renderings of the same outcome: [payload] is the SDK's full result document, which is
+ * what an MCP client or a script should get, and [summary] is the compact form meant for a
+ * model's context. The device produces both, because it is the side that understands them.
+ */
+public data class DeviceResult(
+    val payload: String,
+    val summary: String?,
+) {
+    /** What to put in front of a model: the summary when there is one, else the raw payload. */
+    public val forModel: String get() = summary ?: payload
+}
+
 /** A device that has connected and identified itself. */
 public data class ConnectedDevice(
     val name: String,
@@ -40,7 +55,7 @@ public class AgentBridge(
     private val onEvent: (String) -> Unit = {},
 ) : AutoCloseable {
 
-    private val pending = ConcurrentHashMap<String, SynchronousQueue<String>>()
+    private val pending = ConcurrentHashMap<String, SynchronousQueue<DeviceResult>>()
     private val nextId = AtomicLong(1)
 
     @Volatile
@@ -83,12 +98,12 @@ public class AgentBridge(
      * failure, because that distinction is the SDK's central contract and the wire must not
      * blur it.
      */
-    public fun execute(actionPayload: String, timeoutMs: Long = 120_000): String {
+    public fun execute(actionPayload: String, timeoutMs: Long = 120_000): DeviceResult {
         val socket = connection ?: throw IllegalStateException(
             "No device is connected. Open the AndroPilot agent app and connect it to this host.",
         )
         val id = nextId.getAndIncrement().toString()
-        val mailbox = SynchronousQueue<String>()
+        val mailbox = SynchronousQueue<DeviceResult>()
         pending[id] = mailbox
         try {
             socket.send(ProtocolJson.encode(Frame.ActionRequest(id, actionPayload)))
@@ -112,7 +127,9 @@ public class AgentBridge(
             device = null
             tools = emptyList()
             // Unblock anything still waiting rather than letting it sit until its timeout.
-            pending.values.forEach { it.offer(DISCONNECTED_RESULT) }
+            pending.values.forEach {
+                it.offer(DeviceResult(DISCONNECTED_RESULT, "FAILED [not_connected] The device disconnected."))
+            }
         }
     }
 
@@ -150,11 +167,15 @@ public class AgentBridge(
                 is Frame.ActionResponse -> {
                     // offer, not put: a caller that already timed out must not wedge the
                     // reader thread and take the whole connection down with it.
-                    pending[frame.id]?.offer(frame.payload, 5, TimeUnit.SECONDS)
+                    pending[frame.id]?.offer(
+                        DeviceResult(frame.payload, frame.summary),
+                        5,
+                        TimeUnit.SECONDS,
+                    )
                 }
                 is Frame.Event -> runCatching { onEvent(frame.payload) }
                 is Frame.Error -> runCatching { onEvent(text) }
-                is Frame.ActionRequest, is Frame.ToolsRequest, is Frame.Welcome ->
+                is Frame.ActionRequest, is Frame.ToolsRequest, is Frame.Welcome, is Frame.Note ->
                     socket.send(ProtocolJson.encode(Frame.Error(null, "A device may not send ${frame::class.simpleName}.")))
             }
         }
@@ -163,6 +184,18 @@ public class AgentBridge(
     override fun close() {
         runCatching { connection?.close() }
         server.close()
+    }
+
+    /**
+     * Asks the device to record something in its own event stream.
+     *
+     * Used for the model's reasoning. Best-effort and deliberately so: a note that does not
+     * arrive costs a line of analysis later, while an exception here would end a run that
+     * was otherwise going fine.
+     */
+    public fun note(message: String, data: Map<String, String> = emptyMap()) {
+        val socket = connection ?: return
+        runCatching { socket.send(ProtocolJson.encode(Frame.Note(message, data))) }
     }
 
     private companion object {
