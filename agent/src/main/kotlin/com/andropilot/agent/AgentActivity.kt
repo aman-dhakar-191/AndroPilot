@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -27,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.andropilot.android.AndroPilot
 
@@ -55,11 +57,28 @@ private fun AgentScreen() {
     val settings = remember { AgentSettings(context) }
     var config by remember { mutableStateOf(settings.load()) }
     val state by AgentController.state.collectAsStateWithLifecycle()
-    val serviceEnabled = AndroPilot.isServiceEnabled(context)
+
+    // Re-read on resume, not once. Granting the accessibility service means leaving for
+    // system settings and coming back, which is exactly the moment this answer changes --
+    // and a warning still showing after you have done what it asked reads like a bug in
+    // the grant rather than in the screen.
+    var serviceEnabled by remember { mutableStateOf(AndroPilot.isServiceEnabled(context)) }
+    LifecycleResumeEffect(Unit) {
+        serviceEnabled = AndroPilot.isServiceEnabled(context)
+        onPauseOrDispose {}
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            // targetSdk 35 means Android 15 draws this edge to edge whether or not it was
+            // designed for it, so without this the heading sits under the status bar and
+            // the buttons under the gesture bar. The demo never showed the problem because
+            // it uses a Scaffold, which insets its content for you.
+            //
+            // Applied before the scroll modifier on purpose: the padding then bounds the
+            // scrolling viewport, rather than scrolling content through the status bar.
+            .safeDrawingPadding()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
