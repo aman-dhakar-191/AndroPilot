@@ -47,8 +47,12 @@ There are two ways, and they coexist. Which you want depends on where the model 
 
 ### Your own model endpoint (the host drives)
 
-If you already run a gateway or router on your machine — anything that speaks the OpenAI
-chat-completions shape — the host can drive the device itself:
+Anything that speaks the OpenAI chat-completions shape works, whether it is on your machine
+or not. **All three of endpoint, key and model name go here, on the host — none of them
+belong in the app.** The phone is only ever told two things: where the host is, and the
+shared token.
+
+A local gateway or router:
 
 ```bash
 export ANDROPILOT_MODEL_KEY=...       # not --model-key: an argument is in the process list
@@ -59,8 +63,30 @@ export ANDROPILOT_MODEL_KEY=...       # not --model-key: an argument is in the p
     --goal "turn on wi-fi"
 ```
 
+OpenRouter, which is the same shape with a different base URL and namespaced model names:
+
+```bash
+export ANDROPILOT_MODEL_KEY=sk-or-v1-...
+./host/build/install/andropilot-host/bin/andropilot-host \
+    --token "$TOKEN" --skills ./skills \
+    --model-endpoint https://openrouter.ai/api/v1 \
+    --model vendor/model-name \
+    --goal "turn on wi-fi"
+```
+
+Give the base URL ending in `/v1`; the client appends `/chat/completions` itself. Ollama and
+llama.cpp expose the same shape, so a genuinely local model is the same command with a
+different URL.
+
 Leave `--goal` off for an interactive prompt: type a task, watch it run, type another,
 without dropping the connection to the phone.
+
+**Where the model runs is a privacy decision, and the SDK cannot make it for you.** A hosted
+router means the screens the agent observes are sent to whoever it routes to. That is fine
+for turning Wi-Fi on and a poor idea for anything with a balance or a message on it. The
+redaction rules in this project govern what reaches *logs and telemetry*; they have no
+bearing on what you deliberately hand to a model, because the model cannot act on a screen
+it has not been shown.
 
 The loop asks your endpoint what to do, runs the tool calls it comes back with, feeds the
 results in, and repeats until the model replies with plain text and no tool call. It stops
