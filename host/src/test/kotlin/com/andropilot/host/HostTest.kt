@@ -39,7 +39,8 @@ class HostTest {
         private val tools: List<ToolSpec>,
         /** Pushed unprompted once the handshake is done, the way real AgentEvents are. */
         private val events: List<String> = emptyList(),
-        private val answer: (String) -> String,
+        /** Returning null leaves the request unanswered, standing in for a long action. */
+        private val answer: (String) -> String?,
     ) : AutoCloseable {
         private val connection = WsClient.connect(
             "ws://127.0.0.1:$port/agent",
@@ -59,7 +60,9 @@ class HostTest {
                     }
                     is Frame.ActionRequest -> {
                         lastRequest.set(frame.payload)
-                        connection.send(ProtocolJson.encode(Frame.ActionResponse(frame.id, answer(frame.payload))))
+                        answer(frame.payload)?.let { payload ->
+                            connection.send(ProtocolJson.encode(Frame.ActionResponse(frame.id, payload)))
+                        }
                     }
                     else -> Unit
                 }
@@ -243,6 +246,56 @@ class HostTest {
             val read = mcp.call("resources/read", buildJsonObject { put("uri", "andropilot://skill/com.whatsapp") })
             val text = read["result"]!!.jsonObject["contents"]!!.jsonArray[0].jsonObject["text"]!!.jsonPrimitive.content
             assertEquals("The send button is unlabelled.", text)
+        }
+    }
+
+    @Test
+    fun `takes a device back after the previous one went away`() {
+        // The phone reconnects constantly: Wi-Fi drops, Doze, the app being reopened. A
+        // bridge that accepted one connection per lifetime would look fine in every test
+        // and be useless in a room.
+        bridge().use { bridge ->
+            FakeDevice(bridge.port, "secret", listOf(tool("observe"))) { """{"type":"success"}""" }.use {
+                assertTrue(bridge.awaitDevice(5_000))
+                assertEquals("""{"type":"success"}""", bridge.execute("""{"type":"observe"}""").payload)
+            }
+
+            // The first device is gone; its slot has to be free, not held forever.
+            val reconnected = java.util.concurrent.CountDownLatch(1)
+            FakeDevice(bridge.port, "secret", listOf(tool("observe"), tool("click"))) {
+                reconnected.countDown()
+                """{"type":"success"}"""
+            }.use {
+                var attempts = 0
+                while (bridge.tools().size != 2 && attempts++ < 50) Thread.sleep(100)
+                assertEquals(2, bridge.tools().size, "the second device never took the slot")
+                assertEquals("""{"type":"success"}""", bridge.execute("""{"type":"observe"}""").payload)
+            }
+        }
+    }
+
+    @Test
+    fun `answers a caller waiting on an action when the device vanishes`() {
+        // Otherwise the call sits until its timeout -- two minutes of a run looking hung
+        // for a device that is already gone.
+        bridge().use { bridge ->
+            // Never answers: this stands in for an action still running when the phone goes.
+            val device = FakeDevice(bridge.port, "secret", listOf(tool("observe"))) { null }
+            assertTrue(bridge.awaitDevice(5_000))
+
+            val result = java.util.concurrent.atomic.AtomicReference<DeviceResult>()
+            val caller = Thread {
+                runCatching { bridge.execute("""{"type":"wait_for"}""", timeoutMs = 30_000) }
+                    .onSuccess { result.set(it) }
+            }.apply { start() }
+
+            Thread.sleep(300)
+            device.close()
+            caller.join(10_000)
+
+            val answer = result.get()
+            assertNotNull(answer, "the caller was left waiting after the device went away")
+            assertTrue(answer!!.payload.contains("not_connected"), answer.payload)
         }
     }
 
