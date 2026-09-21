@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!--
+      A DEFAULT, meant to be overridden by the app that ships this library.
+
+      This label is the only thing distinguishing one accessibility service from another in
+      the system list, and two apps embedding this SDK both land there. Leaving the default
+      in place gives the user two identical rows and no way to tell which one they are
+      toggling, which turns an ordinary "switch it off and on again" into guesswork.
+      Redeclare `andropilot_service_label` in your own res/values/strings.xml; an app
+      resource wins over a library one.
+    -->
     <string name="andropilot_service_label">AndroPilot agent control</string>
     <string name="andropilot_service_description">Lets an AI agent read the screen and perform taps, text entry and gestures on your behalf. Only enable this if you trust the app that requested it.</string>
 </resources>

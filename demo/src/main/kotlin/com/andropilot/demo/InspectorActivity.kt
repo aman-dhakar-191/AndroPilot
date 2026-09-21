@@ -265,10 +265,18 @@ private fun PermissionCard(
                         color = MaterialTheme.colorScheme.error,
                     )
                     Text(
-                        "The system has it enabled but nothing is bound, so the service has " +
-                            "stopped or failed to start. Android shows this as \"This service " +
-                            "is malfunctioning\". Toggle it off and back on; if it returns, " +
-                            "check Logcat for the crash.",
+                        "The system has it enabled but nothing is bound. This usually means " +
+                            "the binding died -- often the process being reclaimed by the " +
+                            "device -- and Android does NOT retry on its own, so it stays " +
+                            "this way while still looking switched on.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "Switch the service off and on again to clear it. Check you are on " +
+                            "the right row: every app built on this SDK appears here, and " +
+                            "they are told apart only by their label. If it keeps coming " +
+                            "back, exempt this app from battery optimisation and enable " +
+                            "autostart, then look in Logcat for a crash.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Button(onClick = onOpenSettings) { Text("Open accessibility settings") }

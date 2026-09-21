@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">AndroPilot Agent</string>
+    <!-- Overrides the library default so this service is distinguishable from the demo's
+         in the accessibility settings list. See android/src/main/res/values/strings.xml. -->
+    <string name="andropilot_service_label">AndroPilot Agent (remote control)</string>
 </resources>

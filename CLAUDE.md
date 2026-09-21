@@ -175,6 +175,20 @@ Three build decisions look like bugs and are not. Do not "fix" them:
 - **XML comments cannot contain `--`.** The `xml` CI job catches this in seconds; the
   manifest merger otherwise reports it minutes into a Gradle run. The manifest merger fails to parse the file and the
   Android build dies before compiling anything. Avoid the em-dash-as-`--` habit in `.xml`.
+- **A dead accessibility binding is sticky, and Android never retries it.** When the
+  service's process is reclaimed while bound, `AccessibilityManagerService` moves the
+  component into `Crashed services:` and leaves it there: `dumpsys accessibility` then shows
+  it under `Enabled services:` with an empty `Binding services:`, so the UI reads "switched
+  on" forever while nothing runs. Only re-enabling clears it. Diagnose with
+  `adb shell dumpsys accessibility` and read three lines -- `Bound`, `Crashed`, `Binding` --
+  rather than hunting Logcat for a crash that already happened and left no trace. Clear it
+  without the settings UI by rewriting `enabled_accessibility_services` without the
+  component and then with it.
+- **Every app built on this SDK appears in the same accessibility list**, distinguished only
+  by `andropilot_service_label`. The library's value is a DEFAULT and each app overrides it;
+  when two apps both shipped the default, the two rows were identical and the user could not
+  tell which one "switch it off and on again" was actually touching. That is what made a
+  dead binding unfixable through the UI.
 - **The Android modules cannot be compiled in sandboxes where `dl.google.com` is blocked**
   (AGP is unresolvable). Verify them via CI rather than assuming a local failure is a code bug.
 - **`android-actions/setup-android@v3` is broken** — it installs the retired `tools` package.
