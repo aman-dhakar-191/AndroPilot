@@ -2,6 +2,8 @@ package com.andropilot.host
 
 import com.andropilot.host.agent.AgentLoop
 import com.andropilot.host.agent.OpenAiCompatibleClient
+import com.andropilot.host.ui.ControlServer
+import com.andropilot.host.ui.RunEventBus
 import java.io.File
 import java.security.SecureRandom
 import java.util.Base64
@@ -48,14 +50,8 @@ public fun main(args: Array<String>) {
     val skills = Skills(options.skillsDirectory)
     System.err.println("[host] ${skills.all().size} app skill(s) loaded from ${options.skillsDirectory}")
 
-    Runtime.getRuntime().addShutdownHook(
-        Thread {
-            runCatching { bridge.close() }
-            runCatching { ingest?.close() }
-        },
-    )
-
-    options.modelEndpoint?.let { endpoint ->
+    val bus = RunEventBus()
+    val modelClient = options.modelEndpoint?.let { endpoint ->
         // The key comes from the environment by preference: a --model-key lands in the
         // process list, where anything on the machine can read it.
         val key = System.getenv("ANDROPILOT_MODEL_KEY") ?: options.modelKey.orEmpty()
@@ -65,13 +61,44 @@ public fun main(args: Array<String>) {
                     "Prefer ANDROPILOT_MODEL_KEY in the environment.",
             )
         }
-        val client = OpenAiCompatibleClient(
+        OpenAiCompatibleClient(
             baseUrl = endpoint,
             apiKey = key,
             model = options.model,
             temperature = options.temperature,
-        )
-        System.err.println("[host] Model: ${client.describe}")
+        ).also { System.err.println("[host] Model: ${it.describe}") }
+    }
+
+    val ui = options.uiPort?.let { port ->
+        ControlServer(
+            port = port,
+            bridge = bridge,
+            bus = bus,
+            loopFactory = modelClient?.let {
+                { AgentLoop(bridge, it, skills, maxSteps = options.maxSteps, emit = bus::emit) }
+            },
+        ).start().also {
+            // Loopback regardless of --bind. That flag is there so a phone on the LAN can
+            // reach the agent socket; it must not also publish a start-a-run button.
+            System.err.println("[host] Control UI on http://127.0.0.1:${it.port}")
+            if (modelClient == null) {
+                System.err.println("[host] (no --model-endpoint, so the UI can watch but not start a run)")
+            }
+        }
+    }
+
+    Runtime.getRuntime().addShutdownHook(
+        Thread {
+            runCatching { bridge.close() }
+            runCatching { ingest?.close() }
+            runCatching { ui?.close() }
+        },
+    )
+
+    // With a UI open, the process stays up serving it rather than running one task and
+    // exiting: closing the browser tab should not end the session.
+    if (modelClient != null && ui == null) {
+        val client = modelClient
         System.err.println("[host] Waiting for the device before the first run...")
         if (!bridge.awaitDevice(options.waitForDeviceMs)) {
             System.err.println("[host] No device connected within ${options.waitForDeviceMs}ms. Exiting.")
@@ -80,7 +107,7 @@ public fun main(args: Array<String>) {
             return
         }
 
-        val loop = AgentLoop(bridge, client, skills, maxSteps = options.maxSteps)
+        val loop = AgentLoop(bridge, client, skills, maxSteps = options.maxSteps, emit = bus::emit)
 
         val goals: Sequence<String> = options.goal?.let { sequenceOf(it) }
             // No --goal means an interactive session: type a task, watch it run, type
@@ -108,6 +135,7 @@ public fun main(args: Array<String>) {
         }
         bridge.close()
         ingest?.close()
+        ui?.close()
         return
     }
 
@@ -138,6 +166,8 @@ internal data class Options(
     val goal: String? = null,
     val maxSteps: Int = 40,
     val waitForDeviceMs: Long = 120_000,
+    /** Serves the control page. Loopback only, whatever --bind says. */
+    val uiPort: Int? = null,
 )
 
 internal fun parse(args: Array<String>): Options {
@@ -160,6 +190,7 @@ internal fun parse(args: Array<String>): Options {
             "--goal" -> options = options.copy(goal = args[++i])
             "--max-steps" -> options = options.copy(maxSteps = args[++i].toInt())
             "--wait-ms" -> options = options.copy(waitForDeviceMs = args[++i].toLong())
+            "--ui-port" -> options = options.copy(uiPort = args[++i].toInt())
             "--help", "-h" -> options = options.copy(help = true)
             else -> throw IllegalArgumentException("Unknown option '$arg'.\n$USAGE")
         }
@@ -196,4 +227,7 @@ Driving the device from your own model (an OpenAI-compatible endpoint):
                          phone; a loop with no ceiling keeps going when it is lost.
   --temperature <n>      Passed through when your endpoint accepts it.
   --wait-ms <n>          How long to wait for the phone before giving up (default 120000).
+  --ui-port <n>          Serve the control page there: type a goal, watch each step, stop a
+                         run. Always bound to 127.0.0.1, whatever --bind says, because it
+                         needs no password and starting a run is not something to publish.
 """

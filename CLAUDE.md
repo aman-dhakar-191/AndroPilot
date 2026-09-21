@@ -125,6 +125,14 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   behind them is the `ModelClient` interface. A provider-neutral SDK with a vendor wired
   into the host in front of it would be neutral in name only. Prefer `ANDROPILOT_MODEL_KEY`
   over the flag: an argument is readable by anything that can list processes.
+- **The control UI binds to loopback, always, whatever `--bind` says.** `--bind` widens the
+  agent socket so a phone on the LAN can dial in; the page that starts runs is a different
+  thing and carries no password *because* only this machine can reach it. Those two
+  decisions are joined and must not drift apart.
+- **`RunEvent` is the loop's stream and `AgentEvent` is the device's.** They stay separate:
+  one is what the host did, including the model's reasoning, and the other is what the
+  phone observed and is the record telemetry keeps. Merging them would have the host
+  inventing device events it never saw.
 - **Intent is recorded on the device, not the host.** `Frame.Note` carries the model's
   reasoning down so it becomes an `AgentEvent.Note` in the same ordered stream as the
   outcome. Nothing afterwards can judge whether a decision was *correct* from the action
