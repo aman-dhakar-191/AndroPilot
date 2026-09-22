@@ -158,6 +158,19 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   instead, because the gateway is the only thing that knows its own names and a wrong one
   costs a failed run that reports nothing useful. `ModelCatalog` failing is a value, never
   an exception: an endpoint without `/models` is ordinary and must not stop the page.
+  It reads the gateway's own combo API too, because `/v1/models` is the OpenAI-shaped
+  catalogue and never carries a gateway's groups -- a list of a hundred models that
+  confidently omits the one name somebody configured is worse than no list at all. A
+  gateway's groups are in that listing, tagged `owned_by`, and the listing is
+  per-credential: unauthenticated, the same endpoint answers with public models and no
+  combos at all. So `Catalog.listed` records whether the endpoint would say, and nothing
+  may call a typed name invalid without it -- a wrong key produces a failure phrased as an
+  unknown *model*, and telling somebody their working combo is misspelled sends them to
+  fix the one thing that was right.
+- **A model that cannot call tools cannot drive a phone**, and says so by talking until the
+  step ceiling rather than failing. `capabilities.tool_calling` is checked at startup and
+  at selection. Absent, it is assumed true: refusing on silence would rule out every
+  endpoint that publishes no capabilities.
 - **The control UI binds to loopback, always, whatever `--bind` says.** `--bind` widens the
   agent socket so a phone on the LAN can dial in; the page that starts runs is a different
   thing and carries no password *because* only this machine can reach it. Those two

@@ -40,7 +40,8 @@ That builds if it needs to, then prints the two things the phone needs:
   "uiPort": 8080,
   "modelEndpoint": "http://localhost:20128/v1",
   "modelId": "a model id, or a gateway combo name",
-  "apiKey": "the api key"
+  "apiKey": "the api key",
+  "managementKey": "optional: admin token, only to list combos"
 }
 ```
 
@@ -53,25 +54,23 @@ startup and warns when `modelId` is not in it, because a gateway that rejects a 
 usually says only that it did, not what would have worked. An endpoint with no `/models` is
 fine -- the box still accepts a name typed by hand, sent through untouched.
 
-**OmniRoute combos.** A persisted combo (Settings -> Combos) is matched on its *exact*
-name, with no fuzzy matching, and `combo/<name>` is the unambiguous spelling. `auto` and
-`auto/*` are a different mechanism that builds their own candidate pool and deliberately do
-**not** use your combos. So an error like
+**The model list is per-credential, and combos are in it.** `GET /v1/models` returns a
+gateway's own groups alongside its models, tagged `"owned_by": "combo"` -- but only to the
+key that owns them. Unauthenticated, the same endpoint answers with a long list of public
+models and silently omits every combo, so a catalogue that looks complete can still be
+missing the one name that matters. The control page groups Combos above Models and says
+when it could not read the list at all, rather than implying the list is empty.
 
+```powershell
+$key = "sk-..."
+curl.exe -s -H "Authorization: Bearer $key" http://localhost:20128/v1/models
 ```
-Unable to determine provider for model 'AndroPilot'. Use a provider/model prefix
-(e.g. openai/AndroPilot) or ensure the model is added as a combo entry.
-```
 
-means the gateway did not recognise that string -- try `combo/AndroPilot`, and check the
-name against the list the page now shows. The `openai/` in that message is OmniRoute's own
-example text; the host never adds a prefix to what you configured.
-
-`modelId` is whatever string your gateway answers to. It does not have to be a model:
-an OmniRoute combo is addressed by its own name (`"AndroPilot"`, say) and picks a model
-behind it, so a fallback chain configured there is invisible to the host, which only ever
-sends the string. Older files that spell these fields `model` and `modelKey` are still
-read, so nothing breaks by not renaming them.
+**A model that cannot call tools cannot drive the phone.** The loop is nothing but tool
+calls, so such a model answers in prose until the step ceiling and looks like a hang. The
+endpoint publishes `capabilities.tool_calling`; the host warns at startup and the page
+warns on selection. Silence is taken as "yes", because refusing on it would rule out every
+endpoint that publishes no capabilities.
 
 Every field is optional, and anything on the command line overrides the file — a settings
 file you could not override for one run would be worse than typing the flags. A malformed

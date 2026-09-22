@@ -2,6 +2,7 @@ package com.andropilot.host.ui
 
 import com.andropilot.host.AgentBridge
 import com.andropilot.host.agent.AgentLoop
+import com.andropilot.host.agent.Catalog
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import kotlinx.serialization.builtins.serializer
@@ -40,7 +41,7 @@ public class ControlServer(
      * The page offers the list rather than making somebody type a name that only the
      * gateway knows the spelling of.
      */
-    private val modelCatalog: () -> List<String> = ::emptyList,
+    private val modelCatalog: () -> Catalog = { Catalog(emptyList(), listed = false) },
     private val configuredModel: String? = null,
 ) : AutoCloseable {
 
@@ -170,10 +171,22 @@ public class ControlServer(
      * appear on the next refresh, and the call is one local GET.
      */
     private fun models(exchange: HttpExchange) {
-        val names = runCatching { modelCatalog() }.getOrDefault(emptyList())
-        val list = names.joinToString(",") { json.encodeToString(String.serializer(), it) }
+        val catalog = runCatching { modelCatalog() }
+            .getOrDefault(Catalog(emptyList(), listed = false))
+        val list = catalog.options.joinToString(",") { option ->
+            val id = json.encodeToString(String.serializer(), option.id)
+            val group = json.encodeToString(String.serializer(), option.group)
+            """{"id":$id,"group":$group,"tools":${option.toolCalling}}"""
+        }
         val selected = configuredModel?.let { json.encodeToString(String.serializer(), it) } ?: "null"
-        respond(exchange, 200, "application/json", """{"models":[$list],"selected":$selected}""")
+        respond(
+            exchange,
+            200,
+            "application/json",
+            """{"models":[$list],"selected":$selected,"listed":${catalog.listed},"problem":${
+                catalog.problem?.let { json.encodeToString(String.serializer(), it) } ?: "null"
+            }}""",
+        )
     }
 
     private fun stop(exchange: HttpExchange) {

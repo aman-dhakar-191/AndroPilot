@@ -1,6 +1,7 @@
 package com.andropilot.host
 
 import com.andropilot.host.agent.AgentLoop
+import com.andropilot.host.agent.Catalog
 import com.andropilot.host.agent.ModelCatalog
 import com.andropilot.host.agent.OpenAiCompatibleClient
 import com.andropilot.host.ui.ControlServer
@@ -26,6 +27,11 @@ public fun main(args: Array<String>) {
         return
     }
 
+    // Captured before the settings file is folded in: afterwards a key from the file is
+    // indistinguishable from one typed on the command line, and warning about the process
+    // list for a key that was never on it sends people looking for a problem they do not
+    // have.
+    val keyWasAnArgument = parsed.modelKey != null
     val settingsFile = parsed.configFile ?: HostSettings.defaultPath()
     val options = try {
         parsed.withDefaultsFrom(HostSettings.read(settingsFile))
@@ -67,7 +73,7 @@ public fun main(args: Array<String>) {
     // The key comes from the environment by preference: a --model-key lands in the
     // process list, where anything on the machine can read it.
     val modelKey = System.getenv("ANDROPILOT_MODEL_KEY") ?: options.modelKey.orEmpty()
-    if (options.modelKey != null) {
+    if (keyWasAnArgument) {
         System.err.println(
             "[host] Warning: --model-key is visible in the process list. " +
                 "Prefer ANDROPILOT_MODEL_KEY in the environment.",
@@ -89,11 +95,26 @@ public fun main(args: Array<String>) {
             // them at startup turns a 400 that says only "unknown model" into a spelling
             // you can copy -- a gateway's group names are typed into a dashboard, and
             // nothing here can infer them.
-            val names = catalog?.list().orEmpty()
-            if (names.isNotEmpty()) {
-                System.err.println("[host] Endpoint offers ${names.size} model(s): ${names.take(12).joinToString(", ")}${if (names.size > 12) ", ..." else ""}")
-                if (options.model !in names) {
-                    System.err.println("[host] Warning: '${options.model}' is not in that list. Pick one on the control page.")
+            val offered = catalog?.list()
+            val combos = offered?.options.orEmpty().filter { it.group == "combo" }
+            val models = offered?.options.orEmpty().filter { it.group == "model" }
+            if (offered?.listed != true) {
+                // Said out loud because the usual cause is a rejected key, and a rejected
+                // key is also why a combo that exists would not be listed.
+                System.err.println("[host] Could not read the endpoint's model list (${offered?.problem ?: "no endpoint"}).")
+            } else {
+                if (combos.isNotEmpty()) {
+                    System.err.println("[host] Endpoint offers ${combos.size} combo(s): ${combos.joinToString(", ") { it.id }}")
+                }
+                System.err.println("[host] Endpoint offers ${models.size} model(s): ${models.take(6).joinToString(", ") { it.id }}${if (models.size > 6) ", ..." else ""}")
+                val chosen = offered.options.firstOrNull { it.id == options.model }
+                when {
+                    chosen == null ->
+                        System.err.println("[host] Warning: '${options.model}' is neither a model nor a combo here. Pick one on the control page.")
+                    // The loop is nothing but tool calls; a model without them answers in
+                    // prose until the step ceiling and looks like a hang.
+                    !chosen.toolCalling ->
+                        System.err.println("[host] Warning: '${options.model}' does not support tool calling, so it cannot drive the phone.")
                 }
             }
         }
@@ -115,7 +136,7 @@ public fun main(args: Array<String>) {
                     emit = bus::emit,
                 )
             },
-            modelCatalog = { catalog?.list().orEmpty() },
+            modelCatalog = { catalog?.list() ?: Catalog(emptyList(), listed = false) },
             configuredModel = options.modelEndpoint?.let { options.model },
         ).start().also {
             // Loopback regardless of --bind. That flag is there so a phone on the LAN can

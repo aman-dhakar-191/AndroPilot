@@ -51,6 +51,26 @@
   .finished { border-left-color: var(--ok); }
   .failed, .halted { border-left-color: var(--bad); }
   .empty { color: var(--dim); font-size: 13px; padding: 24px 0; text-align: center; }
+  .picker { position: relative; flex: 1 1 260px; min-width: 0; }
+  .picker input { width: 100%; }
+  .menu {
+    position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0;
+    max-height: 300px; overflow-y: auto; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px; padding: 4px;
+    box-shadow: 0 12px 28px rgba(0,0,0,.22);
+  }
+  .menu[hidden] { display: none; }
+  .menu .grp {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--dim); padding: 8px 10px 4px;
+  }
+  .opt {
+    padding: 7px 10px; border-radius: 7px; cursor: pointer;
+    font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .opt:hover, .opt.active { background: var(--accent); color: #fff; }
+  .menu .none { padding: 10px; color: var(--dim); font-size: 13px; }
 </style>
 </head>
 <body>
@@ -64,10 +84,13 @@
       <span id="device">Checking for a device…</span>
     </div>
     <div class="row" style="margin-bottom:8px">
-      <input type="text" id="model" list="models" placeholder="Model or combo name" autocomplete="off"
-             title="What the host asks the endpoint for. Type to search what it offers.">
-      <datalist id="models"></datalist>
-      <button id="refresh" class="ghost" title="Re-read the endpoint's model list">&#8635;</button>
+      <div class="picker">
+        <input type="text" id="model" placeholder="Model or combo name" autocomplete="off"
+               role="combobox" aria-expanded="false" aria-autocomplete="list"
+               title="What the host asks the endpoint for. Type to search what it offers.">
+        <div class="menu" id="menu" role="listbox" hidden></div>
+      </div>
+      <button id="refresh" class="ghost" title="Re-read what the endpoint offers">&#8635;</button>
     </div>
     <p class="sub" id="modelNote" style="margin:0 0 10px"></p>
     <div class="row">
@@ -87,7 +110,7 @@
   const stop = document.getElementById('stop');
   const dot = document.getElementById('dot');
   const model = document.getElementById('model');
-  const models = document.getElementById('models');
+  const menu = document.getElementById('menu');
   const modelNote = document.getElementById('modelNote');
   const refresh = document.getElementById('refresh');
   const device = document.getElementById('device');
@@ -120,37 +143,128 @@
   // The endpoint is the only thing that knows what names it answers to: a gateway routes
   // on a string that may name a model or a group somebody created in its dashboard, and
   // guessing the spelling costs one failed run per attempt.
+  //
+  // A hand-built list rather than <datalist>: the native one is a browser-styled popup that
+  // shows a handful of a hundred entries, cannot be grouped, and gives no way to say that a
+  // typed name is not among them -- which is the single most useful thing this can tell you.
   let known = [];
+  let listed = false;
+  let problem = null;
+  let shown = [];
+  let active = -1;
+
+  function note(text) { modelNote.textContent = text; }
+
+  function describe() {
+    const value = model.value.trim();
+    if (!listed) {
+      note(problem
+        ? 'Could not read what the endpoint offers (' + problem + '). A name typed here is still sent as-is.'
+        : 'The endpoint did not list anything. A name typed here is still sent as-is.');
+      return;
+    }
+    const combos = known.filter((o) => o.group === 'combo').length;
+    const models = known.length - combos;
+    const counts = `${models} model${models === 1 ? '' : 's'}`
+      + (combos ? `, ${combos} combo${combos === 1 ? '' : 's'}` : ', no combos');
+    const match = known.find((o) => o.id === value);
+    if (value && !match) {
+      note(`\u26a0 \u201c${value}\u201d is neither a model nor a combo here (${counts}).`);
+    } else if (match && !match.tools) {
+      // The loop is nothing but tool calls, so this one will talk until the step ceiling.
+      note(`\u26a0 \u201c${value}\u201d cannot call tools, so it cannot drive the phone.`);
+    } else {
+      note(counts + '. Pick one, or leave it for the host\u2019s configured default.');
+    }
+  }
+
+  function closeMenu() {
+    menu.hidden = true;
+    model.setAttribute('aria-expanded', 'false');
+    active = -1;
+  }
+
+  function openMenu() {
+    const query = model.value.trim().toLowerCase();
+    shown = known.filter((o) => o.id.toLowerCase().includes(query));
+    menu.innerHTML = '';
+    if (!shown.length) {
+      const none = document.createElement('div');
+      none.className = 'none';
+      none.textContent = known.length ? 'Nothing matches. It will be sent as typed.' : 'Nothing to choose from.';
+      menu.appendChild(none);
+    } else {
+      let group = null;
+      shown.forEach((option, i) => {
+        if (option.group !== group) {
+          group = option.group;
+          const head = document.createElement('div');
+          head.className = 'grp';
+          head.textContent = group === 'combo' ? 'Combos' : 'Models';
+          menu.appendChild(head);
+        }
+        const el = document.createElement('div');
+        el.className = 'opt';
+        el.setAttribute('role', 'option');
+        el.textContent = option.id;
+        el.dataset.index = i;
+        // mousedown, not click: blur would close the menu before a click landed.
+        el.addEventListener('mousedown', (e) => {
+          e.preventDefault();
+          model.value = option.id;
+          closeMenu();
+          describe();
+        });
+        menu.appendChild(el);
+      });
+    }
+    menu.hidden = false;
+    model.setAttribute('aria-expanded', 'true');
+  }
+
+  function highlight(delta) {
+    const items = [...menu.querySelectorAll('.opt')];
+    if (!items.length) return;
+    if (active >= 0 && items[active]) items[active].classList.remove('active');
+    active = (active + delta + items.length) % items.length;
+    items[active].classList.add('active');
+    items[active].scrollIntoView({ block: 'nearest' });
+  }
+
   async function loadModels() {
-    modelNote.textContent = 'Reading the endpoint\u2019s model list\u2026';
+    note('Reading what the endpoint offers\u2026');
     try {
       const res = await fetch('/models');
       const data = await res.json();
       known = data.models || [];
-      models.innerHTML = '';
-      for (const id of known) {
-        const opt = document.createElement('option');
-        opt.value = id;
-        models.appendChild(opt);
-      }
+      listed = !!data.listed;
+      problem = data.problem || null;
       if (!model.value && data.selected) model.value = data.selected;
-      if (!known.length) {
-        modelNote.textContent = 'The endpoint did not list its models. Type a name and it will be sent as-is.';
-      } else {
-        modelNote.textContent = known.length + ' available. '
-          + (model.value && !known.includes(model.value)
-              ? '\u26a0 \u201c' + model.value + '\u201d is not one of them.'
-              : 'Leave it as-is to use the host\u2019s configured model.');
-      }
+      describe();
     } catch (e) {
-      modelNote.textContent = 'Could not reach the endpoint for a model list.';
+      listed = false;
+      note('Could not reach the host for a model list.');
     }
   }
-  model.addEventListener('change', () => {
-    if (known.length && model.value && !known.includes(model.value)) {
-      modelNote.textContent = '\u26a0 \u201c' + model.value + '\u201d is not in the endpoint\u2019s list.';
-    } else if (known.length) {
-      modelNote.textContent = known.length + ' available.';
+
+  model.addEventListener('focus', openMenu);
+  model.addEventListener('input', () => { openMenu(); describe(); });
+  model.addEventListener('blur', () => { closeMenu(); describe(); });
+  model.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (menu.hidden) openMenu();
+      highlight(e.key === 'ArrowDown' ? 1 : -1);
+    } else if (e.key === 'Enter') {
+      const items = [...menu.querySelectorAll('.opt')];
+      if (!menu.hidden && active >= 0 && items[active]) {
+        e.preventDefault();
+        model.value = items[active].textContent;
+        closeMenu();
+        describe();
+      }
+    } else if (e.key === 'Escape') {
+      closeMenu();
     }
   });
   refresh.onclick = loadModels;
