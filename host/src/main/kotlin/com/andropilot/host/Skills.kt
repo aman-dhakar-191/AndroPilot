@@ -2,7 +2,7 @@ package com.andropilot.host
 
 import java.io.File
 
-/** Notes about driving one app, written by hand and keyed on its package name. */
+/** Notes about driving one app, or general Android behavior for `_global`. */
 public data class Skill(
     val packageName: String,
     val notes: String,
@@ -19,6 +19,7 @@ public data class Skill(
  *
  * Layout:
  * ```
+ * skills/_global/SKILL.md
  * skills/com.android.settings/SKILL.md
  * skills/com.whatsapp/SKILL.md
  * ```
@@ -34,6 +35,7 @@ public class Skills(private val directory: File) {
         if (!directory.isDirectory) return emptyList()
         return directory.listFiles()
             ?.filter { it.isDirectory }
+            ?.filter { it.name != GLOBAL_NAME }
             ?.mapNotNull { dir ->
                 val file = File(dir, FILE_NAME).takeIf { it.isFile } ?: return@mapNotNull null
                 val notes = runCatching { file.readText() }.getOrNull()?.takeIf { it.isNotBlank() }
@@ -44,12 +46,23 @@ public class Skills(private val directory: File) {
             ?: emptyList()
     }
 
+            /** General Android guidance, injected before app-specific notes. */
+            public fun global(): Skill? = read(File(directory, GLOBAL_NAME))
+
     public fun forPackage(packageName: String?): Skill? {
         if (packageName.isNullOrBlank()) return null
         return all().firstOrNull { it.packageName == packageName }
     }
 
+    private fun read(dir: File): Skill? {
+        val file = File(dir, FILE_NAME).takeIf { it.isFile } ?: return null
+        val notes = runCatching { file.readText() }.getOrNull()?.takeIf { it.isNotBlank() }
+            ?: return null
+        return Skill(dir.name, notes)
+    }
+
     private companion object {
         const val FILE_NAME = "SKILL.md"
+        const val GLOBAL_NAME = "_global"
     }
 }

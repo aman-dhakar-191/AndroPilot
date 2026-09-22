@@ -180,6 +180,10 @@ public class AgentLoop(
             When the task is done, or you are stuck, reply with plain text and no tool call.
             """.trimIndent(),
         )
+        skills.global()?.let { global ->
+            append("\n\nGeneral Android operating guidance:\n")
+            append(global.notes).append('\n')
+        }
         val notes = skills.all()
         if (notes.isNotEmpty()) {
             append("\n\nNotes on specific apps:\n")
