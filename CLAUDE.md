@@ -160,7 +160,11 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   combos at all. So `Catalog.listed` records whether the endpoint would say, and nothing
   may call a typed name invalid without it -- a wrong key produces a failure phrased as an
   unknown *model*, and telling somebody their working combo is misspelled sends them to
-  fix the one thing that was right.
+  fix the one thing that was right. **Blank counts as absent** when reading
+  `ANDROPILOT_MODEL_KEY`: `?:` tests only for null, so an empty or stale environment
+  variable beat the settings file and the host went unauthenticated -- which presents as a
+  missing combo, not as an auth failure. The startup line names the key's source and
+  length, never the key, because it is otherwise the one invisible input.
 - **A model that cannot call tools cannot drive a phone**, and says so by talking until the
   step ceiling rather than failing. `capabilities.tool_calling` is checked at startup and
   at selection. Absent, it is assumed true: refusing on silence would rule out every

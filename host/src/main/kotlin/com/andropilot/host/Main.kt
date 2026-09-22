@@ -72,7 +72,15 @@ public fun main(args: Array<String>) {
     val bus = RunEventBus()
     // The key comes from the environment by preference: a --model-key lands in the
     // process list, where anything on the machine can read it.
-    val modelKey = System.getenv("ANDROPILOT_MODEL_KEY") ?: options.modelKey.orEmpty()
+    //
+    // Blank counts as absent. `?:` alone tests for null, so an ANDROPILOT_MODEL_KEY left
+    // empty in a shell -- or holding a placeholder from an earlier session -- silently beat
+    // the settings file and the host then talked to the gateway unauthenticated. Which
+    // looks nothing like an auth problem: a gateway shows its own groups only to the key
+    // that owns them, so the catalogue came back as the public one and a combo that exists
+    // was reported as a name that does not.
+    val envKey = System.getenv("ANDROPILOT_MODEL_KEY")?.takeIf { it.isNotBlank() }
+    val modelKey = envKey ?: options.modelKey.orEmpty()
     if (keyWasAnArgument) {
         System.err.println(
             "[host] Warning: --model-key is visible in the process list. " +
@@ -90,7 +98,18 @@ public fun main(args: Array<String>) {
     val catalog = options.modelEndpoint?.let { ModelCatalog(it, modelKey) }
     val modelClient = options.modelEndpoint?.let {
         newModelClient(options.model).also { client ->
-            System.err.println("[host] Model: ${client.describe}")
+            // Which key, never the key: a wrong or missing one is the single likeliest
+            // cause of everything below going wrong, and it is otherwise invisible.
+            val source = when {
+                envKey != null -> "ANDROPILOT_MODEL_KEY"
+                keyWasAnArgument -> "--model-key"
+                options.modelKey != null -> "apiKey in the settings file"
+                else -> null
+            }
+            System.err.println(
+                "[host] Model: ${client.describe} " +
+                    if (source == null) "(no api key)" else "(key from $source, ${modelKey.length} chars)",
+            )
             // The gateway knows which names it answers to and the host does not. Printing
             // them at startup turns a 400 that says only "unknown model" into a spelling
             // you can copy -- a gateway's group names are typed into a dashboard, and
