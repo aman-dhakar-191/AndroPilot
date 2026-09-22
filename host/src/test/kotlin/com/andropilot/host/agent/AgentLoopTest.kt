@@ -126,6 +126,88 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `an app's notes arrive with the first result from it, once`(@TempDir dir: File) {
+        // The index in the prompt says notes exist; this is how they actually arrive. Once,
+        // because repeating a page of notes on every turn crowds out the screen itself.
+        File(dir, "com.whatsapp").mkdirs()
+        File(dir, "com.whatsapp/SKILL.md").writeText("# WhatsApp\nThe send button is unlabelled.")
+        val model = ScriptedModel(
+            listOf(
+                ModelReply("Look.", listOf(call("1", "observe"))),
+                ModelReply("Look again.", listOf(call("2", "observe"))),
+                ModelReply("Done.", emptyList()),
+            ),
+        )
+        AgentBridge(port = 0, token = "t").start().use { bridge ->
+            FakeDevice(bridge.port, "t", listOf(tool("observe"))) {
+                """{"type":"success","package_name":"com.whatsapp"}""" to "OK, screen shown"
+            }.use {
+                assertTrue(bridge.awaitDevice(5_000))
+                AgentLoop(bridge, model, Skills(dir), log = {}).run("send a message")
+
+                val results = model.requests.last().filterIsInstance<Turn.ToolResult>()
+                assertTrue(
+                    results[0].content.contains("The send button is unlabelled."),
+                    "the first result from the app should carry its notes: ${results[0].content}",
+                )
+                assertFalse(
+                    results[1].content.contains("The send button is unlabelled."),
+                    "the notes should not repeat on every later result",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `an app with no notes gets the unknown-app playbook`(@TempDir dir: File) {
+        // The uncovered app is the common case -- a phone holds a hundred and a dozen have
+        // notes -- so it must not be the case that gets no help.
+        File(dir, "_unknown").mkdirs()
+        File(dir, "_unknown/SKILL.md").writeText("# Any app\nObserve before assuming a shape.")
+        val model = ScriptedModel(
+            listOf(
+                ModelReply("Look.", listOf(call("1", "observe"))),
+                ModelReply("Done.", emptyList()),
+            ),
+        )
+        AgentBridge(port = 0, token = "t").start().use { bridge ->
+            FakeDevice(bridge.port, "t", listOf(tool("observe"))) {
+                """{"type":"success","package_name":"com.example.nobody.wrote.notes"}""" to "OK"
+            }.use {
+                assertTrue(bridge.awaitDevice(5_000))
+                AgentLoop(bridge, model, Skills(dir), log = {}).run("do a thing")
+
+                val results = model.requests.last().filterIsInstance<Turn.ToolResult>()
+                assertTrue(
+                    results[0].content.contains("Observe before assuming a shape."),
+                    "an unknown app should still get the playbook: ${results[0].content}",
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `the prompt indexes the app notes rather than carrying them`(@TempDir dir: File) {
+        // A library of notes that all sat in the prompt would cost the whole library on
+        // every turn to help with the one app a run opens, and get worse with each skill.
+        File(dir, "com.whatsapp").mkdirs()
+        File(dir, "com.whatsapp/SKILL.md").writeText("# WhatsApp\nThe send button is unlabelled.")
+        val model = ScriptedModel(listOf(ModelReply("Nothing to do.", emptyList())))
+        AgentBridge(port = 0, token = "t").start().use { bridge ->
+            FakeDevice(bridge.port, "t", listOf(tool("observe"))) {
+                """{"type":"success"}""" to "OK"
+            }.use {
+                assertTrue(bridge.awaitDevice(5_000))
+                AgentLoop(bridge, model, Skills(dir), log = {}).run("nothing")
+
+                val system = model.requests.last().filterIsInstance<Turn.System>().single().text
+                assertTrue(system.contains("com.whatsapp -- WhatsApp"), system)
+                assertFalse(system.contains("The send button is unlabelled."), system)
+            }
+        }
+    }
+
+    @Test
     fun `records what the model was trying to do, next to what happened`(@TempDir dir: File) {
         val model = ScriptedModel(
             listOf(
@@ -204,9 +286,11 @@ class AgentLoopTest {
     }
 
     @Test
-    fun `puts the app notes in front of the model`(@TempDir dir: File) {
-        File(dir, "com.android.settings").mkdirs()
-        File(dir, "com.android.settings/SKILL.md").writeText("Wi-Fi lives under Network & internet.")
+    fun `puts the general guidance in front of the model`(@TempDir dir: File) {
+        // Unlike an app's notes, this applies on every screen of every run, so it belongs
+        // in the prompt rather than arriving with a result from one particular app.
+        File(dir, "_global").mkdirs()
+        File(dir, "_global/SKILL.md").writeText("Observe again after every navigation.")
         val model = ScriptedModel(listOf(ModelReply("Nothing to do.", emptyList())))
         AgentBridge(port = 0, token = "t").start().use { bridge ->
             FakeDevice(bridge.port, "t", listOf(tool("observe"))) { """{"type":"success"}""" to "OK" }
@@ -215,7 +299,7 @@ class AgentLoopTest {
                     AgentLoop(bridge, model, Skills(dir), log = {}).run("open wifi")
 
                     val system = model.requests.first().filterIsInstance<Turn.System>().single()
-                    assertTrue(system.text.contains("Wi-Fi lives under Network & internet."))
+                    assertTrue(system.text.contains("Observe again after every navigation."))
                     assertTrue(system.text.contains("observe"), "the standing instructions should survive too")
                 }
         }
