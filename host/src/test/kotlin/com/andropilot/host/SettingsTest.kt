@@ -29,8 +29,8 @@ class SettingsTest {
                   "token": "from-file",
                   "uiPort": 8080,
                   "modelEndpoint": "http://localhost:4000/v1",
-                  "model": "some/model",
-                  "modelKey": "sk-file"
+                  "modelId": "some/model",
+                  "apiKey": "sk-file"
                 }
                 """.trimIndent(),
             ),
@@ -49,7 +49,7 @@ class SettingsTest {
     @Test
     fun `the command line wins over the file`(@TempDir dir: File) {
         val settings = HostSettings.read(
-            file(dir, """{"port": 9000, "bind": "0.0.0.0", "token": "from-file", "model": "file/model"}"""),
+            file(dir, """{"port": 9000, "bind": "0.0.0.0", "token": "from-file", "modelId": "file/model"}"""),
         )
         val options = parse(
             arrayOf("--port", "7000", "--token", "from-flag", "--model", "flag/model"),
@@ -103,12 +103,24 @@ class SettingsTest {
             token = "abc",
             uiPort = 8080,
             modelEndpoint = "http://localhost:4000/v1",
-            model = "some/model",
-            modelKey = "sk-test",
+            modelId = "some/model",
+            apiKey = "sk-test",
         )
         HostSettings.write(target, original)
 
         assertTrue(target.isFile, "the parent directory should have been created")
         assertEquals(original, HostSettings.read(target))
+    }
+
+    @Test
+    fun `a file written before the rename still configures the model`(@TempDir dir: File) {
+        val options = Options().withDefaultsFrom(
+            HostSettings.read(
+                file(dir, """{"model": "old/model", "modelKey": "sk-old"}"""),
+            ),
+        )
+
+        assertEquals("old/model", options.model)
+        assertEquals("sk-old", options.modelKey)
     }
 }

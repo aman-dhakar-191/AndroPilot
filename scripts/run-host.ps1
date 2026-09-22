@@ -132,7 +132,7 @@ Write-Host "  Shared token:                     $token" -ForegroundColor Green
 $effectiveUi = if ($PSBoundParameters.ContainsKey('UiPort') -and $UiPort -gt 0) { $UiPort } else { $settings.uiPort }
 if ($effectiveUi) { Write-Host "  Control page:                     http://127.0.0.1:$effectiveUi" -ForegroundColor Green }
 if (-not $settings.modelEndpoint -and -not $ModelEndpoint) {
-    Write-Host "  No model configured. Add modelEndpoint, model and modelKey to" -ForegroundColor Yellow
+    Write-Host "  No model configured. Add modelEndpoint, modelId and apiKey to" -ForegroundColor Yellow
     Write-Host "  $settingsFile to let the host drive the phone." -ForegroundColor Yellow
 }
 Write-Host ""

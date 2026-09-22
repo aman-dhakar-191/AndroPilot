@@ -151,7 +151,10 @@ Three build decisions look like bugs and are not. Do not "fix" them:
 - **Model endpoint, key and name are configuration, never compiled in**, and the code
   behind them is the `ModelClient` interface. A provider-neutral SDK with a vendor wired
   into the host in front of it would be neutral in name only. Prefer `ANDROPILOT_MODEL_KEY`
-  over the flag: an argument is readable by anything that can list processes.
+  over the flag: an argument is readable by anything that can list processes. `modelId` is
+  sent verbatim and is not assumed to name a model -- a gateway may answer to a group name
+  instead (an OmniRoute combo, for instance), and a host that validated the string would
+  reject a configuration that works.
 - **The control UI binds to loopback, always, whatever `--bind` says.** `--bind` widens the
   agent socket so a phone on the LAN can dial in; the page that starts runs is a different
   thing and carries no password *because* only this machine can reach it. Those two
