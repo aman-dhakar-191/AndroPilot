@@ -1,6 +1,10 @@
 package com.andropilot.agent
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -69,8 +73,12 @@ private fun AgentScreen() {
     // and a warning still showing after you have done what it asked reads like a bug in
     // the grant rather than in the screen.
     var serviceEnabled by remember { mutableStateOf(AndroPilot.isServiceEnabled(context)) }
+    var overlayAllowed by remember {
+        mutableStateOf(Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context))
+    }
     LifecycleResumeEffect(Unit) {
         serviceEnabled = AndroPilot.isServiceEnabled(context)
+        overlayAllowed = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
         onPauseOrDispose {}
     }
 
@@ -132,6 +140,26 @@ private fun AgentScreen() {
                     OutlinedButton(onClick = { AndroPilot.openAccessibilitySettings(context) }) {
                         Text("Open accessibility settings")
                     }
+                }
+            }
+        }
+
+        if (!overlayAllowed) {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Show activity over other apps", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Allow this so a small indicator appears while the remote agent is working.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedButton(onClick = {
+                        context.startActivity(
+                            Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                Uri.parse("package:${context.packageName}"),
+                            ),
+                        )
+                    }) { Text("Allow overlay") }
                 }
             }
         }

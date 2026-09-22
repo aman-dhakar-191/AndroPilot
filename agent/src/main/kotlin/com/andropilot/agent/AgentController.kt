@@ -39,6 +39,9 @@ public object AgentController : AgentEventListener {
 
     private val _activity = MutableStateFlow<List<ActivityEntry>>(emptyList())
 
+    private val _working = MutableStateFlow(false)
+    public val working: StateFlow<Boolean> get() = _working.asStateFlow()
+
     /**
      * What the agent has been doing, newest first.
      *
@@ -83,6 +86,16 @@ public object AgentController : AgentEventListener {
      */
     override fun onEvent(event: AgentEvent) {
         link?.onEvent(event)
+        when (event) {
+            is AgentEvent.ActionStarted -> _working.value = true
+            is AgentEvent.ActionFinished -> _working.value = false
+            is AgentEvent.Note -> when (event.data["kind"]) {
+                "intent" -> _working.value = true
+                "conclusion" -> _working.value = false
+                else -> Unit
+            }
+            else -> Unit
+        }
         ActivityEntry.of(event)?.let { entry ->
             _activity.value = (listOf(entry) + _activity.value).take(MAX_ACTIVITY)
         }
@@ -117,6 +130,7 @@ public object AgentController : AgentEventListener {
         link?.stop()
         link = null
         _state.value = LinkState.Idle
+        _working.value = false
     }
 
     /**

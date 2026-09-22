@@ -28,6 +28,22 @@ class ModelCatalogTest {
     }
 
     @Test
+    fun `gateway models envelope and fields are supported`() {
+        val body = """
+            {"models":[
+              {"id":"auto/best-coding","group":"combo","tools":true},
+              {"id":"aug/claude-sonnet-4.6","group":"model","tools":false}
+            ]}
+        """.trimIndent()
+
+        val options = ModelCatalog.parse(body)
+
+        assertEquals("auto/best-coding", options.first().id)
+        assertEquals("combo", options.first().group)
+        assertEquals(false, options.single { it.id == "aug/claude-sonnet-4.6" }.toolCalling)
+    }
+
+    @Test
     fun `an endpoint that says a model cannot call tools is believed`() {
         val body = """{"data":[{"id":"chat-only","capabilities":{"tool_calling":false}}]}"""
         assertEquals(false, ModelCatalog.parse(body).single().toolCalling)

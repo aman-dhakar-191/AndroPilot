@@ -8,6 +8,12 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
+import android.view.Gravity
+import android.view.WindowManager
+import android.widget.TextView
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,6 +33,9 @@ public class AgentService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var watcher: Job? = null
+    private var overlayWatcher: Job? = null
+    private var overlay: TextView? = null
+    private var overlayManager: WindowManager? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -34,6 +43,7 @@ public class AgentService : Service() {
         when (intent?.action) {
             ACTION_DISCONNECT -> {
                 AgentController.disconnect()
+                removeOverlay()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
@@ -45,6 +55,7 @@ public class AgentService : Service() {
                     return START_NOT_STICKY
                 }
                 createChannel()
+                setupOverlay()
                 startForeground(NOTIFICATION_ID, notification("Connecting to ${config.endpoint}"))
                 AgentController.connect(config, BuildConfig.VERSION_NAME)
                 watch()
@@ -57,11 +68,56 @@ public class AgentService : Service() {
 
     private fun watch() {
         watcher?.cancel()
+        overlayWatcher?.cancel()
         watcher = scope.launch {
             AgentController.state.collect { state ->
                 val manager = getSystemService(NotificationManager::class.java)
                 manager?.notify(NOTIFICATION_ID, notification(describe(state)))
             }
+        }
+        overlayWatcher = scope.launch {
+            AgentController.working.collect { working ->
+                if (working) showOverlay() else removeOverlay()
+            }
+        }
+    }
+
+    private fun setupOverlay() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || !Settings.canDrawOverlays(this)) return
+        if (overlay != null) return
+        overlayManager = getSystemService(WindowManager::class.java)
+        overlay = TextView(this).apply {
+            text = "AndroPilot working"
+            setTextColor(Color.WHITE)
+            textSize = 12f
+            setPadding(18, 8, 18, 8)
+            background = GradientDrawable().apply {
+                setColor(Color.rgb(35, 35, 42))
+                cornerRadius = 40f
+            }
+        }
+    }
+
+    private fun showOverlay() {
+        val view = overlay ?: return
+        if (view.isAttachedToWindow) return
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            android.graphics.PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = 48
+        }
+        runCatching { overlayManager?.addView(view, params) }
+    }
+
+    private fun removeOverlay() {
+        overlay?.let { view ->
+            if (view.isAttachedToWindow) runCatching { overlayManager?.removeView(view) }
         }
     }
 
@@ -119,6 +175,8 @@ public class AgentService : Service() {
 
     override fun onDestroy() {
         watcher?.cancel()
+        overlayWatcher?.cancel()
+        removeOverlay()
         scope.cancel()
         AgentController.disconnect()
         super.onDestroy()

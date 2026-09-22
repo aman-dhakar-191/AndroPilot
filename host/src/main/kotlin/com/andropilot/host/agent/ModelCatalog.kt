@@ -104,7 +104,7 @@ public class ModelCatalog(baseUrl: String, private val apiKey: String) {
             val root = json.parseToJsonElement(body)
             val entries: JsonArray = when {
                 root is JsonArray -> root
-                root is JsonObject -> root["data"] as? JsonArray ?: return emptyList()
+                root is JsonObject -> (root["data"] ?: root["models"]) as? JsonArray ?: return emptyList()
                 else -> return emptyList()
             }
             entries.mapNotNull { entry ->
@@ -112,9 +112,11 @@ public class ModelCatalog(baseUrl: String, private val apiKey: String) {
                     is JsonObject -> {
                         val id = (entry["id"] ?: entry["name"] ?: entry["model"])
                             ?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                        val owner = entry["owned_by"]?.jsonPrimitive?.contentOrNull
-                        val tools = (entry["capabilities"] as? JsonObject)
-                            ?.get("tool_calling")?.jsonPrimitive?.booleanOrNull ?: true
+                        val owner = (entry["owned_by"] ?: entry["group"])?.jsonPrimitive?.contentOrNull
+                        val tools = entry["tools"]?.jsonPrimitive?.booleanOrNull
+                            ?: (entry["capabilities"] as? JsonObject)
+                                ?.get("tool_calling")?.jsonPrimitive?.booleanOrNull
+                            ?: true
                         ModelOption(id, if (owner == "combo") "combo" else "model", tools)
                     }
                     is JsonPrimitive -> entry.contentOrNull?.let { ModelOption(it, "model") }
