@@ -286,6 +286,91 @@ class AgentLoopTest {
     }
 
     @Test
+    fun `a device that is merely slow is not reported as disconnected`(@TempDir dir: File) {
+        // Collapsing a timeout into "not connected" told the model the phone was gone when
+        // it was busy, so a launch that took a moment read as a dead device and the next
+        // move was to go hunting instead of looking at the screen it had just opened.
+        val model = ScriptedModel(
+            listOf(
+                ModelReply("Launching.", listOf(call("1", "launch_app", """{"package_name":"com.slow"}"""))),
+                ModelReply("Noted.", emptyList()),
+            ),
+        )
+        AgentBridge(port = 0, token = "t").start().use { bridge ->
+            // Never answers, so the wait expires while the device is still attached.
+            // Answers, but long after the loop has stopped waiting.
+            FakeDevice(bridge.port, "t", listOf(tool("launch_app"))) {
+                Thread.sleep(1_500)
+                """{"type":"success"}""" to "OK"
+            }.use {
+                assertTrue(bridge.awaitDevice(5_000))
+                AgentLoop(bridge, model, Skills(dir), log = {}, actionTimeoutMs = 300).run("open it")
+
+                val content = model.requests.last().filterIsInstance<Turn.ToolResult>().single().content
+                assertTrue(content.startsWith("FAILED [timeout]"), content)
+                assertTrue(content.contains("observe"), "it should say what to do instead: $content")
+            }
+        }
+    }
+
+    @Test
+    fun `the installed app list is produced once per run`(@TempDir dir: File) {
+        // Re-listing is the reflex after any failure, and it is eighty-odd lines of the
+        // most stable information on the device.
+        val model = ScriptedModel(
+            listOf(
+                ModelReply("What is installed?", listOf(call("1", "list_apps"))),
+                ModelReply("Checking again.", listOf(call("2", "list_apps"))),
+                ModelReply("Done.", emptyList()),
+            ),
+        )
+        AgentBridge(port = 0, token = "t").start().use { bridge ->
+            FakeDevice(bridge.port, "t", listOf(tool("list_apps"))) {
+                """{"type":"success"}""" to "OK list_apps\napps (2):\n  - Clock = com.android.deskclock"
+            }.use { device ->
+                assertTrue(bridge.awaitDevice(5_000))
+                AgentLoop(bridge, model, Skills(dir), log = {}).run("find the clock")
+
+                assertEquals(1, device.actions.size, "the phone should be asked only once")
+                val results = model.requests.last().filterIsInstance<Turn.ToolResult>()
+                assertTrue(results[0].content.contains("Clock = com.android.deskclock"))
+                assertTrue(results[1].content.contains("have not changed"), results[1].content)
+                assertFalse(results[1].content.contains("com.android.deskclock"), "no second copy")
+            }
+        }
+    }
+
+    @Test
+    fun `an app that is not installed re-reads the list`(@TempDir dir: File) {
+        // The one thing that genuinely invalidates it. Caching without this would strand a
+        // run on a stale list after the user installed the app it was asking for.
+        val model = ScriptedModel(
+            listOf(
+                ModelReply("What is installed?", listOf(call("1", "list_apps"))),
+                ModelReply("Launching.", listOf(call("2", "launch_app", """{"package_name":"com.nope"}"""))),
+                ModelReply("Listing again.", listOf(call("3", "list_apps"))),
+                ModelReply("Done.", emptyList()),
+            ),
+        )
+        AgentBridge(port = 0, token = "t").start().use { bridge ->
+            FakeDevice(bridge.port, "t", listOf(tool("list_apps"), tool("launch_app"))) { action ->
+                if (action.contains("launch_app")) {
+                    """{"type":"failure"}""" to "FAILED [app_unavailable] No such package."
+                } else {
+                    """{"type":"success"}""" to "OK list_apps\napps (1):\n  - Clock = com.android.deskclock"
+                }
+            }.use { device ->
+                assertTrue(bridge.awaitDevice(5_000))
+                AgentLoop(bridge, model, Skills(dir), log = {}).run("open nope")
+
+                assertEquals(3, device.actions.size, "the failed launch should invalidate the list")
+                val results = model.requests.last().filterIsInstance<Turn.ToolResult>()
+                assertTrue(results[2].content.contains("Clock = com.android.deskclock"), results[2].content)
+            }
+        }
+    }
+
+    @Test
     fun `puts the general guidance in front of the model`(@TempDir dir: File) {
         // Unlike an app's notes, this applies on every screen of every run, so it belongs
         // in the prompt rather than arriving with a result from one particular app.

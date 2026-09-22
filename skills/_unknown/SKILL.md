@@ -23,6 +23,13 @@ and work from Android's conventions, which almost every app follows.
   If two things match equally, say so rather than picking -- that is what `ambiguous_target`
   is telling you.
 
+## When a launch looks like it failed
+
+- A timeout from `launch_app` usually means the app is opening, not that it is absent.
+  Observe first. A splash screen, a permission dialog, or a first-run page is the common
+  thing sitting in front of the app you asked for.
+- Deal with the prompt, then continue. Do not go looking for the app again.
+
 ## Getting out
 
 - `press_key back` closes dialogs, sheets, and search. It is safe and it is the way out of

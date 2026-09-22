@@ -39,6 +39,8 @@ public class AgentLoop(
      * ceiling does that against somebody's actual phone.
      */
     private val maxSteps: Int = 40,
+    /** How long one action may take on the device. Lowered in tests. */
+    private val actionTimeoutMs: Long = 120_000,
     private val log: (String) -> Unit = { System.err.println(it) },
     /** Where a watching UI gets its live view. Silent by default, for the plain CLI. */
     private val emit: (RunEvent) -> Unit = {},
@@ -51,6 +53,9 @@ public class AgentLoop(
 
     /** Apps whose notes this run has already delivered. */
     private val delivered = mutableSetOf<String>()
+
+    /** Whether the installed-app list has already been produced in this run. */
+    private var appsListed = false
 
     /**
      * Asks the run to stop after the step in flight.
@@ -121,6 +126,7 @@ public class AgentLoop(
             turns += Turn.Assistant(reply.text, reply.toolCalls)
 
             for (call in reply.toolCalls) {
+                var transport: Exception? = null
                 val known = tools.any { it.name == call.name }
                 val content = if (!known) {
                     // Answered rather than dropped: every tool_call has to come back with a
@@ -128,18 +134,34 @@ public class AgentLoop(
                     // was wrong is more useful than failing the run.
                     "FAILED [invalid_request] There is no tool called '${call.name}'. " +
                         "Available: ${tools.joinToString { it.name }}."
+                } else if (call.name == LIST_APPS && appsListed) {
+                    // Answered without asking the phone. The installed apps are the most
+                    // stable thing about a device and the answer is already in this
+                    // conversation, so a second copy of eighty-odd lines buys nothing --
+                    // and re-listing is the reflex a model reaches for after any failure,
+                    // which is exactly when it is least useful.
+                    actions++
+                    emit(RunEvent.Action(step, call.name, "cached"))
+                    CACHED_APPS.also { emit(RunEvent.Result(step, call.name, it, ok = true)) }
                 } else {
                     actions++
                     val payload = actionPayload(call.name, call.argumentsJson, json)
                     log("[action] ${call.name} $payload")
                     emit(RunEvent.Action(step, call.name, payload))
                     val result = try {
-                        bridge.execute(payload)
+                        bridge.execute(payload, actionTimeoutMs)
                     } catch (e: Exception) {
+                        transport = e
                         null
                     }
-                    (result?.forModel ?: "FAILED [not_connected] The device could not be reached.")
+                    (result?.forModel ?: transportFailure(transport))
                         .also { emit(RunEvent.Result(step, call.name, it, !it.startsWith("FAILED"))) }
+                        .also { summary ->
+                            if (call.name == LIST_APPS && !summary.startsWith("FAILED")) appsListed = true
+                            // The one thing that genuinely invalidates the list: the app
+                            // being asked for is not installed, or no longer is.
+                            if (summary.contains(APP_UNAVAILABLE)) appsListed = false
+                        }
                         .let { summary -> summary + notesFor(result?.payload) }
                 }
                 if (!known) emit(RunEvent.Result(step, call.name, content, ok = false))
@@ -160,6 +182,24 @@ public class AgentLoop(
      * when there are any, because that knowledge belongs in front of the model rather than
      * being rediscovered.
      */
+    /**
+     * What to tell the model when the device did not answer.
+     *
+     * A timeout is not a disconnection, and collapsing the two told the model the phone was
+     * gone when it was merely busy -- so a `launch_app` that took longer than the wait came
+     * back reading like a dead device, and the obvious next move was to go hunting for the
+     * app rather than to look at the screen it had probably just opened.
+     */
+    private fun transportFailure(cause: Exception?): String {
+        val message = cause?.message ?: "The device could not be reached."
+        return if (message.contains("did not answer")) {
+            "FAILED [timeout] $message The action may still have been carried out -- " +
+                "call observe and read the screen before deciding it failed or retrying it."
+        } else {
+            "FAILED [not_connected] $message"
+        }
+    }
+
     /**
      * The notes for whatever app a result came from, the first time it is seen.
      *
@@ -223,5 +263,12 @@ public class AgentLoop(
     private companion object {
         /** One key for every app without notes: the playbook is the same for all of them. */
         const val UNKNOWN_KEY = "_unknown"
+        const val LIST_APPS = "list_apps"
+        const val APP_UNAVAILABLE = "app_unavailable"
+        const val CACHED_APPS =
+            "OK list_apps\nThe installed apps have not changed since the earlier list_apps " +
+                "result in this conversation. Scroll back and reuse that list rather than " +
+                "asking for it again; it will be re-read automatically if an app turns out " +
+                "not to be installed."
     }
 }
