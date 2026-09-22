@@ -143,13 +143,30 @@ jobs:
             :andropilot-android:assembleRelease \
             :andropilot-devtools:assembleRelease \
             :demo:assembleRelease \
-            :andropilot-agent:assembleRelease --stacktrace
+            :andropilot-agent:assembleRelease \
+            :andropilot-updater:assembleRelease --stacktrace
 
       # Runs here rather than in the JVM job because :andropilot-devtools is an Android
       # library and needs the SDK to configure at all. The logic under test is pure -- which
       # APK on a release belongs to this app -- and it got that wrong in production once.
+      # A test task that discovers nothing succeeds and looks exactly like one that passed.
+      # JUnit 5 under AGP's unit test task is the sort of wiring that breaks quietly, so the
+      # count is asserted rather than assumed.
       - name: Unit-test the devtools module
-        run: ./gradlew :andropilot-devtools:testDebugUnitTest --stacktrace
+        run: |
+          set -euo pipefail
+          ./gradlew :andropilot-devtools:testDebugUnitTest --stacktrace
+
+          results="devtools/build/test-results/testDebugUnitTest"
+          # `|| true` matters: with pipefail, grep finding nothing would abort the step
+          # before the message below -- which is precisely the case worth explaining.
+          count="$({ grep -ho 'tests="[0-9]\+"' "$results"/TEST-*.xml 2>/dev/null || true; } \
+            | tr -dc '0-9\n' | awk '{ sum += $1 } END { print sum + 0 }')"
+          echo "Ran ${count} test(s) from $results"
+          if [ "${count}" -eq 0 ]; then
+            echo "::error::No tests were discovered; the task passed without running anything."
+            exit 1
+          fi
 
       - name: Lint
         run: ./gradlew :andropilot-android:lintRelease :andropilot-devtools:lintRelease --stacktrace
@@ -170,6 +187,13 @@ jobs:
         with:
           name: andropilot-agent-apk
           path: agent/build/outputs/apk/release/andropilot-agent-release.apk
+          if-no-files-found: error
+
+      - name: Upload the updater APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: andropilot-updater-apk
+          path: updater/build/outputs/apk/release/andropilot-updater-release.apk
           if-no-files-found: error
 
       - name: Upload the library AAR

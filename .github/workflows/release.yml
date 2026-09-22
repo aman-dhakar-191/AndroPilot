@@ -195,6 +195,7 @@ jobs:
             :andropilot-devtools:assembleRelease \
             :demo:assembleRelease \
             :andropilot-agent:assembleRelease \
+            :andropilot-updater:assembleRelease \
             --stacktrace
 
       - name: Publish to the local Maven repository
@@ -224,6 +225,7 @@ jobs:
           # folder called agent/, the same split as :andropilot-android in android/ two lines
           # up. :demo is the odd one out only because its project name really is "demo".
           cp "agent/build/outputs/apk/release/andropilot-agent-release.apk" "dist/andropilot-agent-$V.apk"
+          cp "updater/build/outputs/apk/release/andropilot-updater-release.apk" "dist/andropilot-updater-$V.apk"
           echo "Release artifacts:"
           ls -la dist
 
@@ -256,5 +258,8 @@ jobs:
               device. Debug-signed; not for distribution.
             - `andropilot-agent-*.apk` — the agent app: connects the device to a host you
               configure, so a model running on your own machine can drive it.
+            - `andropilot-updater-*.apk` — keeps the other two current. Its own app so the
+              permission to install packages lives apart from anything that can read or
+              tap a screen; install it once and it updates the rest.
 
             See `docs/INTEGRATION.md` for how to wire this into an app.
