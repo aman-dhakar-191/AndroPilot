@@ -19,11 +19,23 @@ import java.util.Base64
  * socket into this process can drive somebody's phone.
  */
 public fun main(args: Array<String>) {
-    val options = parse(args)
-    if (options.help) {
+    val parsed = parse(args)
+    if (parsed.help) {
         System.err.println(USAGE)
         return
     }
+
+    val settingsFile = parsed.configFile ?: HostSettings.defaultPath()
+    val options = try {
+        parsed.withDefaultsFrom(HostSettings.read(settingsFile))
+    } catch (e: IllegalStateException) {
+        // Refusing is the point. Carrying on with defaults would start on a different port
+        // with a newly invented token, and the only symptom would be a phone that stopped
+        // connecting for no visible reason.
+        System.err.println("[host] ${e.message}")
+        return
+    }
+    if (settingsFile.isFile) System.err.println("[host] Settings from ${settingsFile.path}")
 
     val token = options.token ?: generateToken().also {
         // stderr, not stdout: in MCP mode stdout carries JSON-RPC and a stray line there
@@ -158,6 +170,8 @@ internal data class Options(
     val skillsDirectory: File = File("skills"),
     val telemetryDirectory: File = File("telemetry-data"),
     val help: Boolean = false,
+    /** Overrides where settings are read from. */
+    val configFile: File? = null,
     /** Set to run the agent loop against an OpenAI-compatible endpoint. */
     val modelEndpoint: String? = null,
     val model: String = "gpt-4o-mini",
@@ -191,6 +205,7 @@ internal fun parse(args: Array<String>): Options {
             "--max-steps" -> options = options.copy(maxSteps = args[++i].toInt())
             "--wait-ms" -> options = options.copy(waitForDeviceMs = args[++i].toLong())
             "--ui-port" -> options = options.copy(uiPort = args[++i].toInt())
+            "--config" -> options = options.copy(configFile = File(args[++i]))
             "--help", "-h" -> options = options.copy(help = true)
             else -> throw IllegalArgumentException("Unknown option '$arg'.\n$USAGE")
         }
@@ -215,6 +230,26 @@ andropilot-host -- the PC side of the AndroPilot agent bridge.
   --telemetry-dir <dir>  Where ingested records are written (default ./telemetry-data).
   --skills <dir>         Per-app notes, as <dir>/<package>/SKILL.md (default ./skills).
   --verbose              Print forwarded device events to stderr.
+  --config <file>        Read settings from here instead of
+                         ~/.andropilot-host/settings.json. Anything on the command line
+                         still wins over the file.
+
+Settings file (~/.andropilot-host/settings.json), so none of this has to be typed twice:
+
+  {
+    "port": 8765,
+    "bind": "0.0.0.0",
+    "token": "the shared secret the phone presents",
+    "ingestPort": 8766,
+    "uiPort": 8080,
+    "skills": "B:\\AndroPilot\\skills",
+    "modelEndpoint": "http://localhost:4000/v1",
+    "model": "the model id your gateway uses",
+    "modelKey": "the api key"
+  }
+
+Every field is optional and the command line overrides all of them. The file is created
+with owner-only permissions because a token and a key are in it.
 
 Driving the device from your own model (an OpenAI-compatible endpoint):
 

@@ -12,3 +12,4 @@ captures/
 # phone does not need reconfiguring after every restart. It is a credential for a socket
 # that can drive a phone; it does not belong in the repository.
 .andropilot/
+

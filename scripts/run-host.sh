@@ -14,6 +14,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+[ -n "${PORT:-}" ] && PORT_SET=1
+[ -n "${INGEST_PORT:-}" ] && INGEST_SET=1
+[ -n "${BIND:-}" ] && BIND_SET=1
 PORT="${PORT:-8765}"
 INGEST_PORT="${INGEST_PORT:-8766}"
 # 0.0.0.0 because the phone has to reach this across the LAN. The token is what stands
@@ -21,16 +24,29 @@ INGEST_PORT="${INGEST_PORT:-8766}"
 BIND="${BIND:-0.0.0.0}"
 UI_PORT="${UI_PORT:-0}"
 
-mkdir -p .andropilot
-TOKEN_FILE=".andropilot/token"
-if [ ! -s "$TOKEN_FILE" ]; then
-  # Base64url: a '+' or '/' in a token that also travels as a ?token= query parameter is an
-  # escaping bug waiting to happen.
-  head -c 24 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n' > "$TOKEN_FILE"
-  chmod 600 "$TOKEN_FILE"
-  echo "Generated a new token and saved it to $TOKEN_FILE"
+# Settings live in the home directory, not beside the checkout: the token is in them, and a
+# token in the working copy is lost when the repository is moved or re-cloned -- which means
+# reconfiguring the phone by hand.
+SETTINGS_DIR="$HOME/.andropilot-host"
+SETTINGS="$SETTINGS_DIR/settings.json"
+mkdir -p "$SETTINGS_DIR"
+
+if [ ! -s "$SETTINGS" ] || ! grep -q '"token"' "$SETTINGS" 2>/dev/null; then
+  # Carry over a token from the old location before inventing one: a fresh token would
+  # silently invalidate whatever the phone already has saved.
+  if [ -s ".andropilot/token" ]; then
+    TOKEN="$(cat .andropilot/token)"
+    echo "Moving your existing token into $SETTINGS"
+  else
+    # Base64url: a '+' or '/' in a token that also travels as a ?token= query parameter is
+    # an escaping bug waiting to happen.
+    TOKEN="$(head -c 24 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')"
+    echo "Generated a new token and saved it to $SETTINGS"
+  fi
+  printf '{\n  "token": "%s"\n}\n' "$TOKEN" > "$SETTINGS"
+  chmod 600 "$SETTINGS"
 fi
-TOKEN="$(cat "$TOKEN_FILE")"
+TOKEN="$(sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$SETTINGS" | head -1)"
 
 LAUNCHER="host/build/install/andropilot-host/bin/andropilot-host"
 if [ -z "${NO_BUILD:-}" ] || [ ! -x "$LAUNCHER" ]; then
@@ -44,16 +60,19 @@ LAN="$(ip route get 1.1.1.1 2>/dev/null | awk '{for (i=1;i<=NF;i++) if ($i=="src
 [ -n "$LAN" ] || LAN="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
 [ -n "$LAN" ] || LAN="<this machine's LAN address>"
 
-ARGS=(--bind "$BIND" --port "$PORT" --token "$TOKEN" --skills "$ROOT/skills" --ingest-port "$INGEST_PORT")
+# Only what this run asks for. The host reads the settings file itself, and passing a
+# default here would override a value the file deliberately sets.
+ARGS=(--skills "$ROOT/skills")
+[ -n "${BIND_SET:-}" ] && ARGS+=(--bind "$BIND")
+[ -n "${PORT_SET:-}" ] && ARGS+=(--port "$PORT")
+[ -n "${INGEST_SET:-}" ] && ARGS+=(--ingest-port "$INGEST_PORT")
 [ "$UI_PORT" -gt 0 ] && ARGS+=(--ui-port "$UI_PORT")
 [ -n "${MCP:-}" ] && ARGS+=(--mcp)
 if [ -n "${ANDROPILOT_MODEL_ENDPOINT:-}" ]; then
   ARGS+=(--model-endpoint "$ANDROPILOT_MODEL_ENDPOINT" --model "${ANDROPILOT_MODEL:-gpt-4o-mini}")
-  [ -n "${ANDROPILOT_MODEL_KEY:-}" ] || \
-    echo "ANDROPILOT_MODEL_KEY is not set; the model endpoint will refuse the request."
 fi
-# The key is deliberately NOT passed as an argument: the host reads it from the environment
-# it inherits, and an argument is readable by anything that can list processes.
+# The key is never passed as an argument: the host takes it from the settings file or from
+# the environment it inherits, and an argument is readable by anything that lists processes.
 
 echo
 echo "  Host endpoint for the agent app:  ws://$LAN:$PORT/agent"

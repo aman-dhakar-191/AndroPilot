@@ -29,6 +29,32 @@ That builds if it needs to, then prints the two things the phone needs:
   Shared token:                     kQ7vN2pX...
 ```
 
+**Settings live in `~/.andropilot-host/settings.json`**, so nothing has to be typed twice:
+
+```json
+{
+  "bind": "0.0.0.0",
+  "port": 8765,
+  "token": "the shared secret the phone presents",
+  "ingestPort": 8766,
+  "uiPort": 8080,
+  "modelEndpoint": "http://localhost:4000/v1",
+  "model": "the model id your gateway uses",
+  "modelKey": "the api key"
+}
+```
+
+Every field is optional, and anything on the command line overrides the file — a settings
+file you could not override for one run would be worse than typing the flags. A malformed
+file is refused rather than ignored: falling back to defaults would start on a different
+port with a freshly invented token, and the only symptom would be a phone that no longer
+connects.
+
+It is in the home directory rather than beside the checkout because the token is in it, and
+a token in the working copy is lost the moment the repository is moved or re-cloned. The
+file is created owner-only; it holds a token and, if you put one there, a model key.
+`ANDROPILOT_MODEL_KEY` still wins over the file.
+
 **The token is kept, not regenerated.** Started by hand the host invents a random one every
 launch, which quietly invalidates the endpoint saved on the phone and makes every restart a
 reconfiguration. The script stores one in `.andropilot/token` (git-ignored) and reuses it,
