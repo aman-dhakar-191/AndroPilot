@@ -121,6 +121,20 @@ phone as an action document and returns the result.
 One extra tool, `device_status`, is always present so a client that lists tools before the
 phone has connected sees something useful rather than an empty server.
 
+### Answering on the phone
+
+The agent app ships `financialOnly()`: anything the policy reads as financial stops and
+waits for a person. The phone is where that is answered -- the agent screen lists whatever
+is pending with Approve and Refuse, and until you answer, the run does not continue.
+
+Approving **re-runs** the action against whatever is on screen at that moment, not the
+screen the agent saw when it asked. A human takes seconds and screens move, so re-resolving
+the selector is the only honest option.
+
+The same screen keeps a short list of what the agent has been doing, for looking at
+afterwards. It cannot be a live view: while a run is in progress the model is driving other
+apps and this screen is not on top. The browser page is where you watch a run.
+
 ### What the host will not do
 
 The safety policy lives on the phone and is not negotiable over the socket. A host can ask
