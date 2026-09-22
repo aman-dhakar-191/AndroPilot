@@ -382,3 +382,40 @@ Worth computing from the first day: failure rate by `FailureReason`, the `STALE_
 rate (the reliability canary), the `AMBIGUOUS_TARGET` rate (the perception canary), steps
 per completed task, and repeated identical actions against the same target, which means the
 model is stuck.
+
+## Debugging telemetry
+
+Telemetry has its own connection, to the ingest port, and its own status. A connected agent
+socket says nothing about it.
+
+The device logs under the `AndroPilot-telemetry` tag:
+
+```
+adb logcat -s AndroPilot-telemetry
+```
+
+```
+[telemetry] initialized (not yet reached the server) -> http://192.168.1.12:8766/ingest | recorded 0, uploaded 0 in 0 batch(es)
+[telemetry] handshake: posting to http://192.168.1.12:8766/ingest
+[telemetry] handshake accepted (1 record(s), HTTP 200) -- connected -> ... | recorded 0, uploaded 1 in 1 batch(es)
+```
+
+The host logs every request that reaches `/ingest`, accepted or not:
+
+```
+[ingest] 1 record(s) from /192.168.1.4:53112 (device 9f3c..., run 2b7e...), gzipped
+[ingest] wrote 1 record(s) to telemetry-data/events-2026-09-22.jsonl (1 total this session)
+```
+
+What the pairs mean:
+
+| Device says | Host says | Meaning |
+| --- | --- | --- |
+| `handshake accepted` | `wrote N record(s)` | Working end to end. |
+| `handshake failed, will retry` | nothing | Nothing arrived: wrong host or port, or unreachable. |
+| `handshake refused` HTTP 401 | `refused a batch: the token does not match` | The tokens differ. |
+| nothing at all | nothing | The sink was never built -- telemetry is off, or the endpoint was rejected. The screen says which. |
+
+A device that reports `initialized` and never reaches `connected` has not sent anything.
+That is the case the handshake exists to make visible within a second rather than a flush
+interval.

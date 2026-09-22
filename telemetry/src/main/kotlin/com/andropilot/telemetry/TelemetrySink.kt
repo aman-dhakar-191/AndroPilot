@@ -8,6 +8,7 @@ import com.andropilot.core.observe.TraceWriter
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 /** How a [TelemetrySink] behaves. */
 public data class TelemetryOptions(
@@ -34,6 +35,23 @@ public data class TelemetryOptions(
     /** First retry delay after a failed upload. Doubles, capped at [maxBackoffMs]. */
     val initialBackoffMs: Long = 5_000,
     val maxBackoffMs: Long = 5 * 60_000,
+    /**
+     * Prove the endpoint is reachable at startup instead of waiting for the first flush.
+     *
+     * Without it the first evidence that telemetry works arrives a flush interval later,
+     * and only if something happened to record -- so a misconfigured endpoint looks
+     * identical to an idle device for fifteen seconds, which is exactly when somebody is
+     * watching the screen wondering whether they typed the host right.
+     */
+    val handshake: Boolean = true,
+    /**
+     * Where this module's own diagnostics go.
+     *
+     * A hook rather than a logger because this code runs on Android and on a desktop JVM,
+     * and the module deliberately depends on neither platform's logging. The host points
+     * it at Logcat or stderr.
+     */
+    val log: (String) -> Unit = {},
 )
 
 /**
@@ -68,6 +86,25 @@ public class TelemetrySink private constructor(
     private val running = AtomicBoolean(true)
     private var backoffMs = options.initialBackoffMs
 
+    private val recorded = AtomicLong(0)
+    private val uploadedRecords = AtomicLong(0)
+
+    @Volatile
+    private var current = TelemetryStatus(TelemetryState.INITIALIZING, describeEndpoint())
+
+    /** Called whenever the status changes, on the uploader thread. */
+    @Volatile
+    public var onStatus: (TelemetryStatus) -> Unit = {}
+
+    /** Everything known about the pipeline right now. Safe to read from any thread. */
+    public val status: TelemetryStatus
+        get() = current.copy(
+            recorded = recorded.get(),
+            uploaded = uploadedRecords.get(),
+            dropped = spool.dropped,
+            pendingBytes = pendingBytes,
+        )
+
     /** Batches accepted by the server so far. */
     public var uploaded: Long = 0
         private set
@@ -83,7 +120,89 @@ public class TelemetrySink private constructor(
         priority = Thread.MIN_PRIORITY
     }
 
-    override fun onEvent(event: AgentEvent): Unit = recorder.onEvent(event)
+    override fun onEvent(event: AgentEvent) {
+        recorded.incrementAndGet()
+        recorder.onEvent(event)
+    }
+
+    /**
+     * Posts one synthetic record so the pipeline is proven end to end at startup.
+     *
+     * The record goes through the ordinary path and lands in the same file as everything
+     * else, which is the point: if this arrives, the endpoint, the token, the gzip, the
+     * server and the file are all working, and any later silence is genuinely an absence
+     * of events rather than a broken pipe.
+     *
+     * Runs on the uploader thread. On Android, doing it where the sink is constructed would
+     * be network I/O on the main thread, which the platform refuses outright.
+     */
+    private fun handshake() {
+        val endpoint = describeEndpoint()
+        options.log("[telemetry] handshake: posting to $endpoint")
+        val line = """{"type":"telemetry_initialized","run_id":"${options.runId}",""" +
+            """"device_id":"${options.deviceId}","sdk_version":"${options.sdkVersion}",""" +
+            """"at":${System.currentTimeMillis()}}"""
+        val result = runCatching {
+            transport.upload(TelemetryBatch(options.runId, options.deviceId, options.sdkVersion, listOf(line)))
+        }.getOrElse { UploadResult(UploadOutcome.RETRY, null, it.message ?: it::class.java.simpleName) }
+        record(result, records = 1, what = "handshake")
+    }
+
+    /**
+     * Folds one attempt's outcome into the status, and says so.
+     *
+     * Every transition is logged rather than only failures: "connected" arriving late, or
+     * not at all, is as diagnostic as an error, and a log that only speaks up when things
+     * break cannot distinguish working from not running.
+     */
+    private fun record(result: UploadResult, records: Int, what: String) {
+        val now = System.currentTimeMillis()
+        val before = current
+        current = when (result.outcome) {
+            UploadOutcome.ACCEPTED -> {
+                uploadedRecords.addAndGet(records.toLong())
+                before.copy(
+                    state = TelemetryState.CONNECTED,
+                    batches = before.batches + 1,
+                    consecutiveFailures = 0,
+                    lastSuccessAtMs = now,
+                    lastStatus = result.status,
+                    lastError = null,
+                )
+            }
+            UploadOutcome.RETRY -> before.copy(
+                state = TelemetryState.RETRYING,
+                consecutiveFailures = before.consecutiveFailures + 1,
+                lastFailureAtMs = now,
+                lastStatus = result.status,
+                lastError = result.detail,
+            )
+            UploadOutcome.REJECTED -> before.copy(
+                state = TelemetryState.FAILED,
+                consecutiveFailures = before.consecutiveFailures + 1,
+                lastFailureAtMs = now,
+                lastStatus = result.status,
+                lastError = result.detail,
+            )
+        }
+        val snapshot = status
+        options.log(
+            when (result.outcome) {
+                UploadOutcome.ACCEPTED -> "[telemetry] $what accepted ($records record(s), HTTP ${result.status}) -- ${snapshot.describe()}"
+                UploadOutcome.RETRY ->
+                    "[telemetry] $what failed, will retry in ${backoffMs}ms " +
+                        "(HTTP ${result.status ?: "none"}: ${result.detail ?: "no detail"}) -- ${snapshot.describe()}"
+                UploadOutcome.REJECTED ->
+                    "[telemetry] $what refused and the batch was dropped " +
+                        "(HTTP ${result.status ?: "none"}: ${result.detail ?: "no detail"}) -- ${snapshot.describe()}"
+            },
+        )
+        runCatching { onStatus(snapshot) }
+    }
+
+    private fun describeEndpoint(): String = transport.let {
+        if (it is HttpTelemetryTransport) it.describe else it::class.java.simpleName
+    }
 
     /**
      * Uploads everything spooled so far, synchronously.
@@ -104,18 +223,27 @@ public class TelemetrySink private constructor(
                 segment.delete()
                 continue
             }
-            when (transport.upload(TelemetryBatch(options.runId, options.deviceId, options.sdkVersion, lines))) {
+            options.log("[telemetry] uploading ${lines.size} record(s) from ${segment.name}")
+            val result = transport.upload(
+                TelemetryBatch(options.runId, options.deviceId, options.sdkVersion, lines),
+            )
+            when (result.outcome) {
                 UploadOutcome.ACCEPTED -> {
                     segment.delete()
                     uploaded++
                     sent++
                     backoffMs = options.initialBackoffMs
+                    record(result, lines.size, "upload")
                 }
                 // A rejected batch will be rejected again forever and would block every
                 // batch behind it. Drop it and keep the pipe moving.
-                UploadOutcome.REJECTED -> segment.delete()
+                UploadOutcome.REJECTED -> {
+                    segment.delete()
+                    record(result, lines.size, "upload")
+                }
                 UploadOutcome.RETRY -> {
                     backoffMs = (backoffMs * 2).coerceAtMost(options.maxBackoffMs)
+                    record(result, lines.size, "upload")
                     return sent
                 }
             }
@@ -124,6 +252,10 @@ public class TelemetrySink private constructor(
     }
 
     private fun loop() {
+        current = current.copy(state = TelemetryState.INITIALIZED)
+        options.log("[telemetry] ${status.describe()}")
+        runCatching { onStatus(status) }
+        if (options.handshake) runCatching { handshake() }
         while (running.get()) {
             val waited = runCatching { Thread.sleep(options.flushIntervalMs) }.isSuccess
             if (!waited || !running.get()) return
@@ -137,6 +269,7 @@ public class TelemetrySink private constructor(
     /** Flushes what is left and stops. */
     override fun close() {
         if (!running.compareAndSet(true, false)) return
+        options.log("[telemetry] closing -- ${status.describe()}")
         worker.interrupt()
         runCatching { flush() }
         runCatching { recorder.close() }
