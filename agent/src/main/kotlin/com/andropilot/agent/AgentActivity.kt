@@ -80,6 +80,7 @@ private fun AgentScreen() {
     // at all in that state, which is the least helpful thing the screen could do.
     val serviceBound by AndroPilot.serviceConnected.collectAsStateWithLifecycle()
     val pending by AgentController.pending.collectAsStateWithLifecycle()
+    val telemetryProblem by AgentController.telemetryProblem.collectAsStateWithLifecycle()
     val activity by AgentController.activity.collectAsStateWithLifecycle()
     val work = rememberCoroutineScope()
 
@@ -171,17 +172,42 @@ private fun AgentScreen() {
             }
         }
 
-        if (activity.isNotEmpty()) {
-            Text("Recent activity", style = MaterialTheme.typography.titleMedium)
-            Text(
-                // Said plainly because the screen is otherwise misleading: it looks like a
-                // live view and cannot be one.
-                "While the agent works it is driving other apps, so this screen is not on " +
-                    "top to watch. It is here to look at afterwards.",
-                style = MaterialTheme.typography.bodySmall,
-            )
+        telemetryProblem?.let { problem ->
             Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        "Telemetry is not running",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Text(problem, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "Everything else is unaffected. Correct the endpoint below and " +
+                            "restart the app, or clear it to turn telemetry off.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
+
+        // Shown even when empty, because a section that appears only once it has content
+        // is indistinguishable from a feature that is not there.
+        Text("Recent activity", style = MaterialTheme.typography.titleMedium)
+        Text(
+            // Said plainly because the screen is otherwise misleading: it looks like a
+            // live view and cannot be one.
+            "While the agent works it is driving other apps, so this screen is not on top " +
+                "to watch. It is here to look at afterwards.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (activity.isEmpty()) {
+                    Text(
+                        "Nothing yet. Actions appear here as the host sends them.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                } else {
                     activity.take(40).forEach { entry -> ActivityRow(entry) }
                 }
             }
@@ -223,10 +249,14 @@ private fun AgentScreen() {
             value = config.telemetryEndpoint,
             onValueChange = { config = config.copy(telemetryEndpoint = it) },
             label = { Text("Telemetry endpoint (optional)") },
-            placeholder = { Text("https://desk.local:8766/ingest") },
+            placeholder = { Text("http://192.168.1.12:8766/ingest") },
+            isError = unreachableHost(config.telemetryEndpoint) != null,
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
+        unreachableHost(config.telemetryEndpoint)?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -257,6 +287,25 @@ private fun AgentScreen() {
                 Text("Disconnect")
             }
         }
+    }
+}
+
+/**
+ * Catches the addresses that mean something on the host and nothing on the phone.
+ *
+ * The host prints what it *binds* -- `0.0.0.0:8766` -- and copying that into the phone is
+ * the natural mistake. `0.0.0.0` is not a destination, and `localhost` on the phone is the
+ * phone. Both leave telemetry quietly dead, so they are named before they are saved.
+ */
+private fun unreachableHost(endpoint: String): String? {
+    if (endpoint.isBlank()) return null
+    val host = endpoint.substringAfter("://", "").substringBefore('/').substringBefore(':')
+    return when (host) {
+        "0.0.0.0" -> "0.0.0.0 is what the host binds to, not an address the phone can reach. " +
+            "Use the machine's LAN address, the one the host printed next to the endpoint."
+        "localhost", "127.0.0.1", "::1" -> "That is this phone, not the host. Use the " +
+            "machine's LAN address."
+        else -> null
     }
 }
 

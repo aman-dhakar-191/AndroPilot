@@ -36,7 +36,13 @@ public class AgentApplication : Application() {
             // The relay, not the link: the socket does not exist yet and may never exist.
             add(AgentController)
             if (config.telemetryEndpoint.isNotBlank() && config.token.isNotBlank()) {
-                add(
+                // Telemetry is optional and must never be load-bearing for starting up.
+                // TelemetrySink rejects an endpoint it will not post to -- a mistyped host,
+                // plaintext to somewhere public -- and that rejection used to escape
+                // Application.onCreate, so a bad value in a settings field crashed the app
+                // on every launch afterwards. With the app unable to open, the only way to
+                // clear the field was to wipe its data. A typo must not be able to do that.
+                runCatching {
                     TelemetrySink.http(
                         endpoint = config.telemetryEndpoint,
                         token = config.token,
@@ -49,8 +55,15 @@ public class AgentApplication : Application() {
                                 includeText = config.telemetryIncludesText,
                             ),
                         ),
-                    ),
-                )
+                    )
+                }.onSuccess { add(it) }
+                    .onFailure {
+                        // Surfaced on the screen rather than only in Logcat: telemetry that
+                        // silently never starts looks exactly like telemetry that works.
+                        AgentController.reportTelemetryProblem(
+                            it.message ?: "The telemetry endpoint was rejected.",
+                        )
+                    }
             }
         }
 
