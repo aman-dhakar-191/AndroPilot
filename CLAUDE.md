@@ -142,6 +142,12 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   Its tool calls go through the device's `SafetyPolicy` exactly as an MCP client's do,
   nothing host-side can widen that, and `AgentLoop` has a hard step ceiling because a model
   that has misread a screen will otherwise keep trying forever.
+- **Host settings live in `~/.andropilot-host/settings.json`, and the command line always
+  wins over them.** The home directory rather than the checkout because the token is in the
+  file, and one kept beside the working copy is lost whenever the repository is moved --
+  which means reconfiguring the phone by hand. A malformed file is refused, never ignored:
+  falling back to defaults would start on a different port with a newly invented token, and
+  the only symptom would be a phone that stopped connecting.
 - **Model endpoint, key and name are configuration, never compiled in**, and the code
   behind them is the `ModelClient` interface. A provider-neutral SDK with a vendor wired
   into the host in front of it would be neutral in name only. Prefer `ANDROPILOT_MODEL_KEY`
