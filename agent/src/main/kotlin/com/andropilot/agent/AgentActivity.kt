@@ -68,6 +68,12 @@ private fun AgentScreen() {
         onPauseOrDispose {}
     }
 
+    // Enabled and bound are different questions, and the gap between them is where this
+    // gets stuck: a binding that dies leaves the service switched on in settings with
+    // nothing running, and Android never retries. Reporting only "off" would show nothing
+    // at all in that state, which is the least helpful thing the screen could do.
+    val serviceBound by AndroPilot.serviceConnected.collectAsStateWithLifecycle()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -96,6 +102,18 @@ private fun AgentScreen() {
                     )
                     OutlinedButton(onClick = { AndroPilot.openAccessibilitySettings(context) }) {
                         Text("Enable accessibility service")
+                    }
+                } else if (!serviceBound) {
+                    Text(
+                        "The accessibility service is switched on but nothing is bound, so " +
+                            "every action will fail. The binding died and Android does not " +
+                            "retry it. Switch the service off and on again to clear that; if " +
+                            "it keeps happening, exempt this app from battery optimisation " +
+                            "and enable autostart.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedButton(onClick = { AndroPilot.openAccessibilitySettings(context) }) {
+                        Text("Open accessibility settings")
                     }
                 }
             }
