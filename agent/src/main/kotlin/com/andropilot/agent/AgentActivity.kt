@@ -273,17 +273,19 @@ private fun AgentScreen() {
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
-        OutlinedTextField(
-            value = config.telemetryEndpoint,
-            onValueChange = { config = config.copy(telemetryEndpoint = it) },
-            label = { Text("Telemetry endpoint (optional)") },
-            placeholder = { Text("http://192.168.1.12:8766/ingest") },
-            isError = unreachableHost(config.telemetryEndpoint) != null,
-            singleLine = true,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-        )
-        unreachableHost(config.telemetryEndpoint)?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Switch(
+                checked = config.telemetryEnabled,
+                onCheckedChange = { config = config.copy(telemetryEnabled = it) },
+            )
+            Text(
+                "Send telemetry to the host's ingest endpoint automatically. Off means no " +
+                    "telemetry leaves the phone.",
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -291,6 +293,7 @@ private fun AgentScreen() {
         ) {
             Switch(
                 checked = config.telemetryIncludesText,
+                enabled = config.telemetryEnabled,
                 onCheckedChange = { config = config.copy(telemetryIncludesText = it) },
             )
             Text(
@@ -315,25 +318,6 @@ private fun AgentScreen() {
                 Text("Disconnect")
             }
         }
-    }
-}
-
-/**
- * Catches the addresses that mean something on the host and nothing on the phone.
- *
- * The host prints what it *binds* -- `0.0.0.0:8766` -- and copying that into the phone is
- * the natural mistake. `0.0.0.0` is not a destination, and `localhost` on the phone is the
- * phone. Both leave telemetry quietly dead, so they are named before they are saved.
- */
-private fun unreachableHost(endpoint: String): String? {
-    if (endpoint.isBlank()) return null
-    val host = endpoint.substringAfter("://", "").substringBefore('/').substringBefore(':')
-    return when (host) {
-        "0.0.0.0" -> "0.0.0.0 is what the host binds to, not an address the phone can reach. " +
-            "Use the machine's LAN address, the one the host printed next to the endpoint."
-        "localhost", "127.0.0.1", "::1" -> "That is this phone, not the host. Use the " +
-            "machine's LAN address."
-        else -> null
     }
 }
 

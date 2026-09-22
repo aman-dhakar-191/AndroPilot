@@ -1,6 +1,7 @@
 package com.andropilot.agent
 
 import android.content.Context
+import java.net.URI
 import java.util.UUID
 
 /** Everything the agent needs to reach a host, and nothing about which model runs there. */
@@ -10,8 +11,8 @@ public data class AgentConfig(
     val token: String = "",
     /** A name the human chose, so two phones are distinguishable in the host's log. */
     val deviceName: String = android.os.Build.MODEL ?: "android",
-    /** Empty disables telemetry entirely, which is the default. */
-    val telemetryEndpoint: String = "",
+    /** Uploads are opt-in; old configurations with an endpoint migrate as enabled. */
+    val telemetryEnabled: Boolean = false,
     /** Ships on-screen text to the telemetry server. Off, and a deliberate choice to turn on. */
     val telemetryIncludesText: Boolean = false,
 ) {
@@ -37,7 +38,10 @@ public class AgentSettings(context: Context) {
         endpoint = preferences.getString(KEY_ENDPOINT, "") ?: "",
         token = preferences.getString(KEY_TOKEN, "") ?: "",
         deviceName = preferences.getString(KEY_DEVICE, null) ?: (android.os.Build.MODEL ?: "android"),
-        telemetryEndpoint = preferences.getString(KEY_TELEMETRY, "") ?: "",
+        telemetryEnabled = preferences.getBoolean(
+            KEY_TELEMETRY_ENABLED,
+            preferences.getString(KEY_TELEMETRY, "").orEmpty().isNotBlank(),
+        ),
         telemetryIncludesText = preferences.getBoolean(KEY_TELEMETRY_TEXT, false),
     )
 
@@ -46,7 +50,7 @@ public class AgentSettings(context: Context) {
             .putString(KEY_ENDPOINT, config.endpoint.trim())
             .putString(KEY_TOKEN, config.token.trim())
             .putString(KEY_DEVICE, config.deviceName.trim())
-            .putString(KEY_TELEMETRY, config.telemetryEndpoint.trim())
+            .putBoolean(KEY_TELEMETRY_ENABLED, config.telemetryEnabled)
             .putBoolean(KEY_TELEMETRY_TEXT, config.telemetryIncludesText)
             .apply()
     }
@@ -71,6 +75,21 @@ public class AgentSettings(context: Context) {
         const val KEY_DEVICE = "device_name"
         const val KEY_DEVICE_ID = "device_id"
         const val KEY_TELEMETRY = "telemetry_endpoint"
+        const val KEY_TELEMETRY_ENABLED = "telemetry_enabled"
         const val KEY_TELEMETRY_TEXT = "telemetry_text"
     }
 }
+
+/** Derives the host's HTTP ingest URL from its WebSocket control endpoint. */
+internal fun telemetryEndpointFor(endpoint: String): String? = runCatching {
+    val uri = URI(endpoint.trim())
+    val scheme = when (uri.scheme?.lowercase()) {
+        "ws" -> "http"
+        "wss" -> "https"
+        else -> return null
+    }
+    val port = (uri.port.takeIf { it >= 0 } ?: 8765) + 1
+    val host = uri.host ?: return null
+    val formattedHost = if (host.contains(':')) "[$host]" else host
+    "$scheme://$formattedHost:$port/ingest"
+}.getOrNull()

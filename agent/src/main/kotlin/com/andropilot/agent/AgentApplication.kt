@@ -30,12 +30,17 @@ public class AgentApplication : Application() {
         super.onCreate()
         val settings = AgentSettings(this)
         val config = settings.load()
+        val telemetryEndpoint = telemetryEndpointFor(config.endpoint)
 
         val listeners = buildList<AgentEventListener> {
             add(LogcatEventListener(format = LogcatEventListener.Format.SUMMARY))
             // The relay, not the link: the socket does not exist yet and may never exist.
             add(AgentController)
-            if (config.telemetryEndpoint.isNotBlank() && config.token.isNotBlank()) {
+            if (config.telemetryEnabled && telemetryEndpoint == null) {
+                AgentController.reportTelemetryProblem(
+                    "Telemetry is enabled, but the host endpoint is not a valid ws:// or wss:// URL.",
+                )
+            } else if (config.telemetryEnabled && telemetryEndpoint != null && config.token.isNotBlank()) {
                 // Telemetry is optional and must never be load-bearing for starting up.
                 // TelemetrySink rejects an endpoint it will not post to -- a mistyped host,
                 // plaintext to somewhere public -- and that rejection used to escape
@@ -44,7 +49,7 @@ public class AgentApplication : Application() {
                 // clear the field was to wipe its data. A typo must not be able to do that.
                 runCatching {
                     TelemetrySink.http(
-                        endpoint = config.telemetryEndpoint,
+                        endpoint = telemetryEndpoint,
                         token = config.token,
                         spoolDirectory = File(cacheDir, "telemetry"),
                         options = TelemetryOptions(

@@ -301,7 +301,27 @@ lives here and not in the SDK.
 ## Telemetry
 
 Optional, off by default, and not part of the SDK — `:andropilot-telemetry` is a separate
-module a host opts into by adding the dependency and naming an endpoint.
+module the agent app opts into when telemetry is enabled. The phone uses a separate HTTP
+ingest URL from the WebSocket control URL. With the host running on a LAN address such as
+`192.168.1.12`, the agent derives this ingest URL from the control endpoint:
+
+```text
+http://192.168.1.12:8766/ingest
+```
+
+Do not use `0.0.0.0` or `localhost` in the control endpoint. `0.0.0.0` is a bind address,
+and `localhost` means the phone itself. Use the PC's LAN address printed by `run-host.ps1`.
+
+The agent app has two telemetry controls, alongside the single control endpoint:
+
+- **Send telemetry** enables or disables telemetry uploads entirely. For example,
+  `ws://192.168.1.12:8765/agent` becomes the ingest URL above.
+- **Include screen text** is an additional opt-in. Leave it off to upload redacted event
+  metadata without screen content, typed values, labels, match prose, or failure prose.
+
+The shared host token is used for both the WebSocket connection and telemetry ingest.
+
+Library wiring looks like this:
 
 ```kotlin
 SessionConfig(
@@ -324,6 +344,10 @@ online. Those are the runs worth looking at.
 `telemetry-data/events-<date>.jsonl`. That is the same format the on-device trace recorder
 writes, so anything you have already written to analyse a device trace works on the
 server's data unchanged.
+
+The host accepts `POST /ingest` only with the token in the `Authorization: Bearer` header.
+The client spools records in the app cache and retries temporary failures in the background;
+telemetry failure never stops the agent or the automation run.
 
 ### What is sent
 
