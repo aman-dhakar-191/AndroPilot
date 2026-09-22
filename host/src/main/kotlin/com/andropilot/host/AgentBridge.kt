@@ -122,7 +122,14 @@ public class AgentBridge(
         connection = socket
         try {
             loop(socket, request)
+        } catch (e: java.io.IOException) {
+            // A phone that walks out of Wi-Fi range, loses its process, or is switched off
+            // resets the socket rather than closing it politely. That is an ordinary end to
+            // a connection, not a fault: letting it escape killed the worker thread and put
+            // a stack trace on the console that read like a host crash.
+            log("Device disconnected: ${e.message ?: e::class.java.simpleName}")
         } finally {
+            device?.let { log("Device gone: ${it.name}. Waiting for it to dial back in.") }
             connection = null
             device = null
             tools = emptyList()
@@ -157,11 +164,13 @@ public class AgentBridge(
                         return
                     }
                     device = ConnectedDevice(frame.device, frame.sdkVersion, request.remoteAddress)
+                    log("Device connected: ${frame.device} (SDK ${frame.sdkVersion}) from ${request.remoteAddress}")
                     socket.send(ProtocolJson.encode(Frame.Welcome(PROTOCOL_VERSION, "andropilot-host")))
                     socket.send(ProtocolJson.encode(Frame.ToolsRequest(nextId.getAndIncrement().toString())))
                 }
                 is Frame.ToolsResponse -> {
                     tools = frame.tools
+                    log("Device reported ${frame.tools.size} tools. Ready.")
                     firstConnection.countDown()
                 }
                 is Frame.ActionResponse -> {
@@ -193,6 +202,18 @@ public class AgentBridge(
      * arrive costs a line of analysis later, while an exception here would end a run that
      * was otherwise going fine.
      */
+    /**
+     * Says what the connection is doing, on stderr.
+     *
+     * stderr and not stdout: in MCP mode stdout carries JSON-RPC and one stray line
+     * corrupts the stream. It is not optional chatter either -- with nothing printed
+     * between "waiting for a device" and the first action, a host with a phone attached
+     * and a host with none look exactly alike.
+     */
+    private fun log(message: String) {
+        System.err.println("[host] $message")
+    }
+
     public fun note(message: String, data: Map<String, String> = emptyMap()) {
         val socket = connection ?: return
         runCatching { socket.send(ProtocolJson.encode(Frame.Note(message, data))) }
