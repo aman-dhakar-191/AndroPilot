@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import com.andropilot.android.AndroPilotAccessibilityService
+import com.andropilot.core.action.AppMetadata
 import com.andropilot.core.action.Direction
 import com.andropilot.core.action.SystemKey
 import com.andropilot.core.driver.DriverErrorKind
@@ -328,6 +329,19 @@ internal class AccessibilityUiDriver(
                     "visible to this app under Android 11+ package visibility rules.",
             )
         startExternal(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    override suspend fun listApps(): List<AppMetadata> = withContext(io) {
+        val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        appContext.packageManager.queryIntentActivities(launcher, 0)
+            .map { info ->
+                AppMetadata(
+                    label = info.loadLabel(appContext.packageManager).toString(),
+                    packageName = info.activityInfo.packageName,
+                )
+            }
+            .distinctBy { it.packageName }
+            .sortedBy { it.label.lowercase() }
     }
 
     override suspend fun openIntent(

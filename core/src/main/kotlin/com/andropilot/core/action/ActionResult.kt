@@ -161,6 +161,10 @@ public sealed interface ActionResult {
 public sealed interface ActionData {
 
     @Serializable
+    @SerialName("apps")
+    public data class Apps(val apps: List<AppMetadata>) : ActionData
+
+    @Serializable
     @SerialName("element")
     public data class Element(
         val element: UiElement,
@@ -185,6 +189,12 @@ public sealed interface ActionData {
     @SerialName("snapshot")
     public data class SnapshotData(val snapshot: UiSnapshot) : ActionData
 }
+
+@Serializable
+public data class AppMetadata(
+    val label: String,
+    @SerialName("package_name") val packageName: String,
+)
 
 /**
  * A sensitive action the SDK has paused. The host app resolves it by calling

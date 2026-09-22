@@ -194,6 +194,7 @@ public class DefaultSafetyPolicy(
         is AgentAction.WaitFor,
         is AgentAction.Verify,
         is AgentAction.Sleep,
+        is AgentAction.ListApps,
         -> RiskLevel.READ_ONLY
 
         is AgentAction.Scroll,

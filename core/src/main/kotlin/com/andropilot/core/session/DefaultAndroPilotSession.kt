@@ -229,6 +229,7 @@ public class DefaultAndroPilotSession(
             is AgentAction.Swipe -> doSwipe(action, startedAt)
             is AgentAction.PressKey -> doPressKey(action, startedAt)
             is AgentAction.LaunchApp -> doLaunchApp(action, startedAt)
+            is AgentAction.ListApps -> doListApps(action, startedAt)
             is AgentAction.OpenIntent -> doOpenIntent(action, startedAt)
             is AgentAction.WaitFor -> doWaitFor(action, startedAt)
             is AgentAction.Sleep -> {
@@ -240,6 +241,14 @@ public class DefaultAndroPilotSession(
     }
 
     // ---- Perception -------------------------------------------------------------------
+
+    private suspend fun doListApps(action: AgentAction.ListApps, startedAt: Long): ActionResult =
+        ok(
+            action,
+            startedAt,
+            InteractionMode.NONE,
+            data = ActionData.Apps(driver.listApps()),
+        )
 
     private suspend fun doObserve(action: AgentAction.Observe, startedAt: Long): ActionResult {
         if (action.waitForSettle) awaitSettled(config.settleTimeoutMs)

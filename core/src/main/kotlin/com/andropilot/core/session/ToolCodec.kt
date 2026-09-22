@@ -91,6 +91,12 @@ public object ToolCodec {
                 result.warnings.forEach { append("\nwarning: ").append(it) }
                 when (val data = result.data) {
                     is ActionData.BooleanValue -> append("\nresult: ").append(data.value)
+                    is ActionData.Apps -> {
+                        append("\napps (").append(data.apps.size).append("):")
+                        data.apps.forEach { app ->
+                            append("\n  - ").append(app.label).append(" = ").append(app.packageName)
+                        }
+                    }
                     is ActionData.Element -> append("\nfound: ").append(data.element.describe())
                     is ActionData.ScreenshotData ->
                         append("\nscreenshot: ").append(data.width).append('x').append(data.height)
@@ -124,7 +130,7 @@ public object ToolCodec {
         "observe", "screenshot", "find_element", "element_exists",
         "click", "click_point", "long_press", "type_text", "clear_text",
         "scroll", "scroll_until", "swipe", "press_key",
-        "launch_app", "open_intent", "wait_for", "sleep", "verify",
+        "launch_app", "list_apps", "open_intent", "wait_for", "sleep", "verify",
     )
 
     /**
@@ -244,6 +250,13 @@ public object ToolCodec {
             put("package_name", stringProp("Android package name, e.g. com.android.settings."))
             put("wait_for_foreground", boolProp("Wait until the app is actually in front. Defaults to true."))
         },
+        tool(
+            "list_apps",
+            "List installed apps with launcher activities, including user-facing labels and " +
+                "exact package names. Use this before launch_app when the package name is " +
+                "unknown. This is read-only.",
+            com.andropilot.core.safety.RiskLevel.READ_ONLY,
+            ) {},
         tool(
             "open_intent",
             "Fire an Android intent. Restricted to the host's allow-list.",

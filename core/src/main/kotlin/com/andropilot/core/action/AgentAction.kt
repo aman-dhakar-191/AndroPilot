@@ -228,6 +228,12 @@ public sealed interface AgentAction {
         override val name: String get() = "launch_app"
     }
 
+    @Serializable
+    @SerialName("list_apps")
+    public data object ListApps : AgentAction {
+        override val name: String get() = "list_apps"
+    }
+
     /**
      * Opens an explicit or implicit intent.
      *

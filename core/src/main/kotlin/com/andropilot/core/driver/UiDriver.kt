@@ -1,6 +1,7 @@
 package com.andropilot.core.driver
 
 import com.andropilot.core.action.Direction
+import com.andropilot.core.action.AppMetadata
 import com.andropilot.core.action.SystemKey
 import com.andropilot.core.model.Bounds
 import com.andropilot.core.model.Point
@@ -113,6 +114,9 @@ public interface UiDriver {
     public suspend fun pressKey(key: SystemKey): DriverOutcome
 
     public suspend fun launchApp(packageName: String): DriverOutcome
+
+    /** Lists apps with launcher entries, for choosing a package before [launchApp]. */
+    public suspend fun listApps(): List<AppMetadata> = emptyList()
 
     public suspend fun openIntent(
         action: String,
