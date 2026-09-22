@@ -39,6 +39,16 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.core.ktx)
     api(libs.androidx.lifecycle.viewmodel.ktx)
+
+    testImplementation(libs.junit.jupiter)
+    testRuntimeOnly(libs.junit.platform.launcher)
+}
+
+// Choosing which APK on a release belongs to this app is pure logic and got it wrong once
+// in production, so it is unit-tested. No device, no Robolectric: the function deliberately
+// takes names and urls rather than Android types.
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
 }
 
 afterEvaluate {

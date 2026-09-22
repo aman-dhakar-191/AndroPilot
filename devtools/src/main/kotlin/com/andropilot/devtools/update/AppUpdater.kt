@@ -64,6 +64,15 @@ public class AppUpdater(
     private val context: Context,
     /** The GitHub repository to read releases from, as `owner/name`. */
     private val repository: String,
+    /**
+     * Part of the APK asset's filename, when a release carries more than one.
+     *
+     * A repository that ships two apps puts two APKs on every release, and nothing in the
+     * asset list says which belongs to which. Without this the updater refuses to choose
+     * rather than picking by alphabetical accident -- which is how the inspector spent
+     * several releases installing the agent over itself.
+     */
+    private val apkAsset: String? = null,
 ) {
 
     // Its own parser rather than the SDK's: this module does not depend on the SDK, so an
@@ -146,6 +155,20 @@ public class AppUpdater(
      * has to grant that in system settings, and this cannot grant it for them.
      */
     public fun install(file: File): UpdateState {
+        // Belt and braces over the asset choice above. Reading the archive's own package
+        // name is the only check that cannot be fooled by a filename, and handing the
+        // installer a different application than the one asking is the failure worth being
+        // certain about -- when the two share a signing key it otherwise succeeds silently.
+        val archived = runCatching {
+            context.packageManager.getPackageArchiveInfo(file.absolutePath, 0)?.packageName
+        }.getOrNull()
+        if (archived != null && archived != context.packageName) {
+            return UpdateState.Failed(
+                "That download is $archived, not ${context.packageName}. Refusing to install " +
+                    "a different app. Check which asset the updater is configured to take.",
+            )
+        }
+
         if (!canRequestInstalls()) {
             return UpdateState.NeedsPermission(
                 "This app cannot install packages. Declare " +
@@ -236,9 +259,16 @@ public class AppUpdater(
         val connection = open("https://api.github.com/repos/$repository/releases/latest")
         val body = connection.inputStream.bufferedReader().use { it.readText() }
         val release = json.decodeFromString<GitHubRelease>(body)
-        val asset = release.assets.firstOrNull {
-            it.name.endsWith(".apk", ignoreCase = true)
-        } ?: return null
+        val candidates = release.assets.map { ApkCandidate(it.name, it.url, it.size) }
+        val asset = when (val choice = chooseApk(candidates, apkAsset)) {
+            is ApkChoice.Chosen -> choice.asset
+            is ApkChoice.None -> return null
+            is ApkChoice.Ambiguous -> error(
+                "This release has ${choice.candidates.size} APKs and nothing says which is " +
+                    "this app's: ${choice.candidates.joinToString()}. Pass the distinguishing " +
+                    "part of the filename to AppUpdates.configure(repository, apkAsset = ...).",
+            )
+        }
         val version = release.tagName.removePrefix("v")
         return AvailableRelease(
             version = version,

@@ -177,6 +177,12 @@ jobs:
             :andropilot-telemetry:test \
             :andropilot-host:test --stacktrace
 
+      - name: Test the Android modules
+        run: |
+          ./gradlew \
+            -Pandropilot.version=${{ steps.version.outputs.value }} \
+            :andropilot-devtools:testDebugUnitTest --stacktrace
+
       - name: Build the release artifacts
         run: |
           ./gradlew \
