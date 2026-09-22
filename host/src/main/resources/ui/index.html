@@ -63,6 +63,13 @@
       <span class="dot" id="dot"></span>
       <span id="device">Checking for a device…</span>
     </div>
+    <div class="row" style="margin-bottom:8px">
+      <input type="text" id="model" list="models" placeholder="Model or combo name" autocomplete="off"
+             title="What the host asks the endpoint for. Type to search what it offers.">
+      <datalist id="models"></datalist>
+      <button id="refresh" class="ghost" title="Re-read the endpoint's model list">&#8635;</button>
+    </div>
+    <p class="sub" id="modelNote" style="margin:0 0 10px"></p>
     <div class="row">
       <input type="text" id="goal" placeholder="Turn on Wi-Fi" autocomplete="off">
       <button id="start">Run</button>
@@ -79,6 +86,10 @@
   const start = document.getElementById('start');
   const stop = document.getElementById('stop');
   const dot = document.getElementById('dot');
+  const model = document.getElementById('model');
+  const models = document.getElementById('models');
+  const modelNote = document.getElementById('modelNote');
+  const refresh = document.getElementById('refresh');
   const device = document.getElementById('device');
   let running = false;
 
@@ -105,6 +116,45 @@
     log.appendChild(el);
     el.scrollIntoView({ block: 'nearest' });
   }
+
+  // The endpoint is the only thing that knows what names it answers to: a gateway routes
+  // on a string that may name a model or a group somebody created in its dashboard, and
+  // guessing the spelling costs one failed run per attempt.
+  let known = [];
+  async function loadModels() {
+    modelNote.textContent = 'Reading the endpoint\u2019s model list\u2026';
+    try {
+      const res = await fetch('/models');
+      const data = await res.json();
+      known = data.models || [];
+      models.innerHTML = '';
+      for (const id of known) {
+        const opt = document.createElement('option');
+        opt.value = id;
+        models.appendChild(opt);
+      }
+      if (!model.value && data.selected) model.value = data.selected;
+      if (!known.length) {
+        modelNote.textContent = 'The endpoint did not list its models. Type a name and it will be sent as-is.';
+      } else {
+        modelNote.textContent = known.length + ' available. '
+          + (model.value && !known.includes(model.value)
+              ? '\u26a0 \u201c' + model.value + '\u201d is not one of them.'
+              : 'Leave it as-is to use the host\u2019s configured model.');
+      }
+    } catch (e) {
+      modelNote.textContent = 'Could not reach the endpoint for a model list.';
+    }
+  }
+  model.addEventListener('change', () => {
+    if (known.length && model.value && !known.includes(model.value)) {
+      modelNote.textContent = '\u26a0 \u201c' + model.value + '\u201d is not in the endpoint\u2019s list.';
+    } else if (known.length) {
+      modelNote.textContent = known.length + ' available.';
+    }
+  });
+  refresh.onclick = loadModels;
+  loadModels();
 
   const stream = new EventSource('/events');
   stream.onmessage = (e) => {
@@ -155,7 +205,7 @@
     const text = goal.value.trim();
     if (!text) return;
     setRunning(true);
-    post('/run', { goal: text });
+    post('/run', { goal: text, model: model.value.trim() });
   };
   stop.onclick = () => post('/stop');
   goal.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !running) start.click(); });

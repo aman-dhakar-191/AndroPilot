@@ -192,6 +192,45 @@ class ControlServerTest {
     }
 
     @Test
+    fun `offers the endpoint's model list and runs the one the page picked`(@TempDir dir: File) {
+        // The names a gateway answers to are typed into its dashboard, so the page has to
+        // be told them rather than have somebody guess the spelling one failed run at a time.
+        val asked = java.util.concurrent.atomic.AtomicReference<String?>("unset")
+        val model = ScriptedModel(listOf(ModelReply("done", emptyList())))
+        AgentBridge(port = 0, token = "t").start().use { bridge ->
+            val bus = RunEventBus()
+            ControlServer(
+                0,
+                bridge,
+                bus,
+                { chosen -> asked.set(chosen); AgentLoop(bridge, model, Skills(dir), log = {}, emit = bus::emit) },
+                modelCatalog = { listOf("AndroPilot", "openai/gpt-5") },
+                configuredModel = "AndroPilot",
+            ).start().use { server ->
+                val (code, body) = get(server.port, "/models")
+                assertEquals(200, code)
+                assertTrue(body.contains(""""AndroPilot""""), body)
+                assertTrue(body.contains(""""openai/gpt-5""""), body)
+                assertTrue(body.contains(""""selected":"AndroPilot""""), body)
+
+                FakeDevice(bridge.port, "t", listOf(tool("observe"))).use {
+                    assertTrue(bridge.awaitDevice(5_000))
+                    assertEquals(202, post(server.port, "/run", """{"goal":"go","model":"combo/AndroPilot"}""").first)
+                    assertEquals("combo/AndroPilot", asked.get())
+                }
+            }
+        }
+    }
+
+    private fun get(port: Int, path: String): Pair<Int, String> {
+        val connection = (URI("http://127.0.0.1:$port$path").toURL().openConnection() as HttpURLConnection)
+        val code = connection.responseCode
+        val text = (if (code < 400) connection.inputStream else connection.errorStream)
+            ?.readBytes()?.toString(Charsets.UTF_8).orEmpty()
+        return code to text
+    }
+
+    @Test
     fun `stops a run that will not finish on its own`(@TempDir dir: File) {
         // A model that keeps calling tools forever is the case the Stop button exists for.
         val model = ScriptedModel(listOf(ModelReply("Trying.", listOf(ToolCall("1", "observe", "{}")))))

@@ -4,7 +4,9 @@ import com.andropilot.host.AgentBridge
 import com.andropilot.host.agent.AgentLoop
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.InetSocketAddress
@@ -27,8 +29,19 @@ public class ControlServer(
     port: Int,
     private val bridge: AgentBridge,
     private val bus: RunEventBus,
-    /** Builds a loop per run. Null when no model endpoint was configured. */
-    private val loopFactory: (() -> AgentLoop)?,
+    /**
+     * Builds a loop per run, for the model the page asked for -- null meaning the one the
+     * host was configured with. Null factory when no model endpoint was configured.
+     */
+    private val loopFactory: ((String?) -> AgentLoop)?,
+    /**
+     * What the endpoint says it can answer to, and what the host will ask for by default.
+     *
+     * The page offers the list rather than making somebody type a name that only the
+     * gateway knows the spelling of.
+     */
+    private val modelCatalog: () -> List<String> = ::emptyList,
+    private val configuredModel: String? = null,
 ) : AutoCloseable {
 
     private val server = HttpServer.create(InetSocketAddress("127.0.0.1", port), 0)
@@ -46,6 +59,7 @@ public class ControlServer(
         server.createContext("/run", ::run)
         server.createContext("/stop", ::stop)
         server.createContext("/status", ::status)
+        server.createContext("/models", ::models)
         // A cached pool, because an SSE request occupies its thread for as long as the page
         // is open. The default executor is single-threaded and one open page would block
         // every other request.
@@ -126,15 +140,16 @@ public class ControlServer(
             return respond(exchange, 409, "application/json", error("No device is connected."))
         }
 
-        val goal = runCatching {
-            json.parseToJsonElement(exchange.requestBody.readBytes().toString(Charsets.UTF_8))
-                .jsonObject["goal"]?.jsonPrimitive?.content
-        }.getOrNull()?.trim()
+        val request = runCatching {
+            json.parseToJsonElement(exchange.requestBody.readBytes().toString(Charsets.UTF_8)).jsonObject
+        }.getOrNull()
+        val goal = request?.get("goal")?.jsonPrimitive?.contentOrNull?.trim()
         if (goal.isNullOrEmpty()) {
             return respond(exchange, 400, "application/json", error("Say what the phone should do."))
         }
+        val model = request?.get("model")?.jsonPrimitive?.contentOrNull?.trim()?.ifEmpty { null }
 
-        val loop = factory()
+        val loop = factory(model)
         current.set(loop)
         runner.execute {
             try {
@@ -146,6 +161,19 @@ public class ControlServer(
             }
         }
         respond(exchange, 202, "application/json", """{"started":true}""")
+    }
+
+    /**
+     * The endpoint's own catalogue, fetched on demand.
+     *
+     * Not cached: a combo added in the gateway's dashboard while this page is open should
+     * appear on the next refresh, and the call is one local GET.
+     */
+    private fun models(exchange: HttpExchange) {
+        val names = runCatching { modelCatalog() }.getOrDefault(emptyList())
+        val list = names.joinToString(",") { json.encodeToString(String.serializer(), it) }
+        val selected = configuredModel?.let { json.encodeToString(String.serializer(), it) } ?: "null"
+        respond(exchange, 200, "application/json", """{"models":[$list],"selected":$selected}""")
     }
 
     private fun stop(exchange: HttpExchange) {
