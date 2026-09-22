@@ -15,6 +15,40 @@ a text field instead of a rebuild.
 
 ## 1. Start the host
 
+```powershell
+.\scripts\run-host.ps1              # Windows
+```
+```bash
+./scripts/run-host.sh                # macOS, Linux
+```
+
+That builds if it needs to, then prints the two things the phone needs:
+
+```
+  Host endpoint for the agent app:  ws://192.168.1.12:8765/agent
+  Shared token:                     kQ7vN2pX...
+```
+
+**The token is kept, not regenerated.** Started by hand the host invents a random one every
+launch, which quietly invalidates the endpoint saved on the phone and makes every restart a
+reconfiguration. The script stores one in `.andropilot/token` (git-ignored) and reuses it,
+so the phone is set up once and reconnects on its own after that.
+
+It binds `0.0.0.0`, because a phone cannot reach a loopback socket. **The token is the only
+thing between that port and everyone else on the network** -- which is why it has to be a
+real one, and why it is not printed anywhere it would be logged.
+
+Useful switches:
+
+| | |
+|---|---|
+| `-NoBuild` / `NO_BUILD=1` | skip Gradle when nothing changed |
+| `-UiPort 8080` / `UI_PORT=8080` | also serve the control page (loopback only; needs the control-page change merged, otherwise the host rejects the flag) |
+| `-Mcp` / `MCP=1` | serve MCP on stdio instead |
+| `-ModelEndpoint ... -Model ...` | add the agent loop; see below |
+
+To do it by hand instead:
+
 ```bash
 ./gradlew :andropilot-host:installDist
 ./host/build/install/andropilot-host/bin/andropilot-host \
@@ -24,8 +58,8 @@ a text field instead of a rebuild.
     --ingest-port 8766
 ```
 
-It prints the token it is using. Everything binds to `127.0.0.1` unless you pass `--bind`;
-widen that deliberately, because a socket into this process can drive a phone.
+By hand, everything binds to `127.0.0.1` unless you pass `--bind`; widen that deliberately,
+because a socket into this process can drive a phone.
 
 ## 2. Point the phone at it
 
@@ -63,7 +97,19 @@ export ANDROPILOT_MODEL_KEY=...       # not --model-key: an argument is in the p
     --goal "turn on wi-fi"
 ```
 
-OpenRouter, which is the same shape with a different base URL and namespaced model names:
+With the script, the endpoint and model are switches and the key stays in the environment:
+
+```powershell
+$env:ANDROPILOT_MODEL_KEY = "sk-or-v1-..."
+.\scripts\run-host.ps1 -ModelEndpoint https://openrouter.ai/api/v1 -Model vendor/model-name -UiPort 8080
+```
+
+The key is never passed as an argument, by either script: an argument is readable by
+anything that can list processes, and the host reads the variable from the environment it
+inherits.
+
+By hand, OpenRouter is the same shape as a local gateway with a different base URL and
+namespaced model names:
 
 ```bash
 export ANDROPILOT_MODEL_KEY=sk-or-v1-...
