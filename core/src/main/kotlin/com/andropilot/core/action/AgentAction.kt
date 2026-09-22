@@ -24,6 +24,7 @@ public enum class SystemKey {
     @SerialName("home") HOME,
     @SerialName("recents") RECENTS,
     @SerialName("notifications") NOTIFICATIONS,
+    @SerialName("quick_settings") QUICK_SETTINGS,
 }
 
 /** A condition the SDK can poll for. */

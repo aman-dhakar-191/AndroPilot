@@ -229,10 +229,12 @@ public object ToolCodec {
         tool(
             "press_key",
             "Press a system key. `back` is the reliable way to dismiss a dialog or leave a " +
-                "screen; prefer it over hunting for an on-screen close button.",
+                "screen; `notifications` opens the notification shade; `quick_settings` " +
+                "opens the Android control center / expanded Quick Settings panel. Prefer " +
+                "these global actions over a fragile edge swipe.",
             com.andropilot.core.safety.RiskLevel.NAVIGATION,
         ) {
-            put("key", enumProp("Which key.", listOf("back", "home", "recents", "notifications")))
+            put("key", enumProp("Which key.", listOf("back", "home", "recents", "notifications", "quick_settings")))
         },
         tool(
             "launch_app",

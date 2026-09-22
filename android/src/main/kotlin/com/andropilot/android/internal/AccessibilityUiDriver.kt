@@ -308,6 +308,7 @@ internal class AccessibilityUiDriver(
             SystemKey.HOME -> AccessibilityService.GLOBAL_ACTION_HOME
             SystemKey.RECENTS -> AccessibilityService.GLOBAL_ACTION_RECENTS
             SystemKey.NOTIFICATIONS -> AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS
+            SystemKey.QUICK_SETTINGS -> AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS
         }
         if (svc.performGlobalAction(action)) {
             DriverOutcome.Ok
