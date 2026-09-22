@@ -129,6 +129,7 @@ public object AgentController : AgentEventListener {
         "click_point" -> "Tapping the screen"
         "long_press" -> "Pressing and holding"
         "type_text" -> "Entering text"
+        "press_ime_action" -> "Pressing the keyboard action"
         "clear_text" -> "Clearing text"
         "scroll", "scroll_until" -> "Looking further down"
         "swipe" -> "Swiping the screen"

@@ -232,12 +232,21 @@ internal class AccessibilityUiDriver(
                 "No field currently has input focus.",
             )
         try {
-            if (focused.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+            val accepted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                focused.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.id)
+            } else {
+                false
+            }
+            if (accepted) {
                 DriverOutcome.Ok
             } else {
                 DriverOutcome.Rejected(
                     DriverErrorKind.ACTION_REJECTED,
-                    "The focused field refused the IME action.",
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+                        "This Android version does not expose a semantic IME action."
+                    } else {
+                        "The focused field refused the IME action."
+                    },
                 )
             }
         } finally {

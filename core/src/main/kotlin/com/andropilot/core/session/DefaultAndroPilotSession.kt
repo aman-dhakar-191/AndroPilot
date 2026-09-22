@@ -219,6 +219,7 @@ public class DefaultAndroPilotSession(
             is AgentAction.ClickPoint -> doClickPoint(action, startedAt)
             is AgentAction.LongPress -> doLongPress(action, startedAt)
             is AgentAction.TypeText -> doTypeText(action, startedAt)
+            is AgentAction.PressImeAction -> doPressImeAction(action, startedAt)
             is AgentAction.ClearText -> doTypeText(
                 AgentAction.TypeText(action.selector, "", replace = true),
                 startedAt,
@@ -241,6 +242,24 @@ public class DefaultAndroPilotSession(
     }
 
     // ---- Perception -------------------------------------------------------------------
+
+    private suspend fun doPressImeAction(
+        action: AgentAction.PressImeAction,
+        startedAt: Long,
+    ): ActionResult {
+        val outcome = driver.performImeAction()
+        return if (outcome is DriverOutcome.Ok) {
+            ok(action, startedAt, InteractionMode.SYSTEM)
+        } else {
+            fail(
+                action,
+                startedAt,
+                FailureReason.DISPATCH_FAILED,
+                (outcome as DriverOutcome.Rejected).message,
+                recommendation = "Focus a text field, then retry press_ime_action.",
+            )
+        }
+    }
 
     private suspend fun doListApps(action: AgentAction.ListApps, startedAt: Long): ActionResult =
         ok(

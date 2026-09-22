@@ -128,7 +128,7 @@ public object ToolCodec {
     /** Every action name the SDK accepts. */
     public val ACTION_NAMES: List<String> = listOf(
         "observe", "screenshot", "find_element", "element_exists",
-        "click", "click_point", "long_press", "type_text", "clear_text",
+        "click", "click_point", "long_press", "type_text", "press_ime_action", "clear_text",
         "scroll", "scroll_until", "swipe", "press_key",
         "launch_app", "list_apps", "open_intent", "wait_for", "sleep", "verify",
     )
@@ -186,7 +186,9 @@ public object ToolCodec {
         tool(
             "type_text",
             "Enter text into a field. Omit the selector to type into the focused field. " +
-                "Set `sensitive` for passwords and one-time codes so the value is never logged.",
+                "Set `press_ime_action` when the keyboard should submit Search, Next, Go, " +
+                "or Done; do not type an empty string to press the keyboard button. Set " +
+                "`sensitive` for passwords and one-time codes so the value is never logged.",
             com.andropilot.core.safety.RiskLevel.SENSITIVE,
         ) {
             put("selector", selectorProp())
@@ -195,6 +197,12 @@ public object ToolCodec {
             put("press_ime_action", boolProp("Press the keyboard's action key (search/next/done) afterwards."))
             put("sensitive", boolProp("Mark as a credential or one-time code."))
         },
+        tool(
+            "press_ime_action",
+            "Press the focused keyboard action button, such as Search, Next, Go, or Done. " +
+                "Use this after entering text when the keyboard should submit the field.",
+            com.andropilot.core.safety.RiskLevel.NAVIGATION,
+        ) {},
         tool(
             "clear_text",
             "Empty a text field. Prefer this over typing an empty string when you only " +

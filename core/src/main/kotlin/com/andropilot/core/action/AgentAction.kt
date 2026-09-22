@@ -166,6 +166,12 @@ public sealed interface AgentAction {
     }
 
     @Serializable
+    @SerialName("press_ime_action")
+    public data object PressImeAction : AgentAction {
+        override val name: String get() = "press_ime_action"
+    }
+
+    @Serializable
     @SerialName("clear_text")
     public data class ClearText(val selector: Selector? = null) : AgentAction {
         override val name: String get() = "clear_text"

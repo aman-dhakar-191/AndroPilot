@@ -202,7 +202,7 @@ public class DefaultSafetyPolicy(
         is AgentAction.Swipe,
         -> RiskLevel.NAVIGATION
 
-        is AgentAction.PressKey -> RiskLevel.NAVIGATION
+        is AgentAction.PressKey, is AgentAction.PressImeAction -> RiskLevel.NAVIGATION
 
         is AgentAction.LaunchApp, is AgentAction.OpenIntent -> RiskLevel.NAVIGATION
 
