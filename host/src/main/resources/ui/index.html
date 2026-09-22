@@ -148,7 +148,8 @@
   // shows a handful of a hundred entries, cannot be grouped, and gives no way to say that a
   // typed name is not among them -- which is the single most useful thing this can tell you.
   let known = [];
-  let combosListed = false;
+  let listed = false;
+  let problem = null;
   let shown = [];
   let active = -1;
 
@@ -156,21 +157,22 @@
 
   function describe() {
     const value = model.value.trim();
-    if (!known.length) {
-      note('The endpoint did not list anything. A name typed here is still sent as-is.');
+    if (!listed) {
+      note(problem
+        ? 'Could not read what the endpoint offers (' + problem + '). A name typed here is still sent as-is.'
+        : 'The endpoint did not list anything. A name typed here is still sent as-is.');
       return;
     }
-    const combos = known.filter((o) => o.group === 'combo' && !o.id.startsWith('combo/')).length;
-    const models = known.filter((o) => o.group === 'model').length;
+    const combos = known.filter((o) => o.group === 'combo').length;
+    const models = known.length - combos;
     const counts = `${models} model${models === 1 ? '' : 's'}`
-      + (combosListed ? `, ${combos} combo${combos === 1 ? '' : 's'}` : '');
-    if (value && !known.some((o) => o.id === value)) {
-      // Only a warning when the whole picture was visible. A gateway's combos sit behind
-      // an admin credential, so without one a working combo name is simply not in this
-      // list -- calling it invalid would be worse than saying nothing.
-      note(combosListed
-        ? `\u26a0 \u201c${value}\u201d is neither a model nor a combo here (${counts}).`
-        : `\u201c${value}\u201d is not a model id (${counts}). Fine if it names a combo \u2014 add a managementKey to list those.`);
+      + (combos ? `, ${combos} combo${combos === 1 ? '' : 's'}` : ', no combos');
+    const match = known.find((o) => o.id === value);
+    if (value && !match) {
+      note(`\u26a0 \u201c${value}\u201d is neither a model nor a combo here (${counts}).`);
+    } else if (match && !match.tools) {
+      // The loop is nothing but tool calls, so this one will talk until the step ceiling.
+      note(`\u26a0 \u201c${value}\u201d cannot call tools, so it cannot drive the phone.`);
     } else {
       note(counts + '. Pick one, or leave it for the host\u2019s configured default.');
     }
@@ -235,11 +237,13 @@
       const res = await fetch('/models');
       const data = await res.json();
       known = data.models || [];
-      combosListed = !!data.combosListed;
+      listed = !!data.listed;
+      problem = data.problem || null;
       if (!model.value && data.selected) model.value = data.selected;
       describe();
     } catch (e) {
-      note('Could not reach the endpoint for a list.');
+      listed = false;
+      note('Could not reach the host for a model list.');
     }
   }
 

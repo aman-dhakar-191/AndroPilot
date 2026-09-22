@@ -41,7 +41,7 @@ public class ControlServer(
      * The page offers the list rather than making somebody type a name that only the
      * gateway knows the spelling of.
      */
-    private val modelCatalog: () -> Catalog = { Catalog(emptyList(), combosListed = false) },
+    private val modelCatalog: () -> Catalog = { Catalog(emptyList(), listed = false) },
     private val configuredModel: String? = null,
 ) : AutoCloseable {
 
@@ -172,18 +172,20 @@ public class ControlServer(
      */
     private fun models(exchange: HttpExchange) {
         val catalog = runCatching { modelCatalog() }
-            .getOrDefault(Catalog(emptyList(), combosListed = false))
+            .getOrDefault(Catalog(emptyList(), listed = false))
         val list = catalog.options.joinToString(",") { option ->
             val id = json.encodeToString(String.serializer(), option.id)
             val group = json.encodeToString(String.serializer(), option.group)
-            """{"id":$id,"group":$group}"""
+            """{"id":$id,"group":$group,"tools":${option.toolCalling}}"""
         }
         val selected = configuredModel?.let { json.encodeToString(String.serializer(), it) } ?: "null"
         respond(
             exchange,
             200,
             "application/json",
-            """{"models":[$list],"selected":$selected,"combosListed":${catalog.combosListed}}""",
+            """{"models":[$list],"selected":$selected,"listed":${catalog.listed},"problem":${
+                catalog.problem?.let { json.encodeToString(String.serializer(), it) } ?: "null"
+            }}""",
         )
     }
 

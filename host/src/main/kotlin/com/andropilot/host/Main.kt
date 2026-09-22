@@ -87,7 +87,7 @@ public fun main(args: Array<String>) {
         temperature = options.temperature,
     )
 
-    val catalog = options.modelEndpoint?.let { ModelCatalog(it, modelKey, options.managementKey) }
+    val catalog = options.modelEndpoint?.let { ModelCatalog(it, modelKey) }
     val modelClient = options.modelEndpoint?.let {
         newModelClient(options.model).also { client ->
             System.err.println("[host] Model: ${client.describe}")
@@ -96,23 +96,25 @@ public fun main(args: Array<String>) {
             // you can copy -- a gateway's group names are typed into a dashboard, and
             // nothing here can infer them.
             val offered = catalog?.list()
-            val combos = offered?.options.orEmpty().filter { it.group == "combo" && !it.id.startsWith("combo/") }
+            val combos = offered?.options.orEmpty().filter { it.group == "combo" }
             val models = offered?.options.orEmpty().filter { it.group == "model" }
-            if (combos.isNotEmpty()) {
-                System.err.println("[host] Endpoint offers ${combos.size} combo(s): ${combos.joinToString(", ") { it.id }}")
-            }
-            if (models.isNotEmpty()) {
-                System.err.println("[host] Endpoint offers ${models.size} model(s): ${models.take(8).joinToString(", ") { it.id }}${if (models.size > 8) ", ..." else ""}")
-            }
-            // Only ever a warning when the host could see the whole picture. A gateway's
-            // combos sit behind an admin credential, so without one a perfectly good combo
-            // name is simply invisible here -- and saying it is wrong would be worse than
-            // saying nothing.
-            if (models.isNotEmpty() && offered?.options.orEmpty().none { it.id == options.model }) {
-                if (offered?.combosListed == true) {
-                    System.err.println("[host] Warning: '${options.model}' is neither a model nor a combo here. Pick one on the control page.")
-                } else {
-                    System.err.println("[host] Note: '${options.model}' is not a model id. That is fine if it names a combo -- combos need a managementKey in settings.json to be listed.")
+            if (offered?.listed != true) {
+                // Said out loud because the usual cause is a rejected key, and a rejected
+                // key is also why a combo that exists would not be listed.
+                System.err.println("[host] Could not read the endpoint's model list (${offered?.problem ?: "no endpoint"}).")
+            } else {
+                if (combos.isNotEmpty()) {
+                    System.err.println("[host] Endpoint offers ${combos.size} combo(s): ${combos.joinToString(", ") { it.id }}")
+                }
+                System.err.println("[host] Endpoint offers ${models.size} model(s): ${models.take(6).joinToString(", ") { it.id }}${if (models.size > 6) ", ..." else ""}")
+                val chosen = offered.options.firstOrNull { it.id == options.model }
+                when {
+                    chosen == null ->
+                        System.err.println("[host] Warning: '${options.model}' is neither a model nor a combo here. Pick one on the control page.")
+                    // The loop is nothing but tool calls; a model without them answers in
+                    // prose until the step ceiling and looks like a hang.
+                    !chosen.toolCalling ->
+                        System.err.println("[host] Warning: '${options.model}' does not support tool calling, so it cannot drive the phone.")
                 }
             }
         }
@@ -134,7 +136,7 @@ public fun main(args: Array<String>) {
                     emit = bus::emit,
                 )
             },
-            modelCatalog = { catalog?.list() ?: Catalog(emptyList(), combosListed = false) },
+            modelCatalog = { catalog?.list() ?: Catalog(emptyList(), listed = false) },
             configuredModel = options.modelEndpoint?.let { options.model },
         ).start().also {
             // Loopback regardless of --bind. That flag is there so a phone on the LAN can
@@ -223,8 +225,6 @@ internal data class Options(
     val modelEndpoint: String? = null,
     val model: String = "gpt-4o-mini",
     val modelKey: String? = null,
-    /** Only for asking the gateway what it offers; never used to run anything. */
-    val managementKey: String? = null,
     val temperature: Double? = null,
     val goal: String? = null,
     val maxSteps: Int = 40,
@@ -249,7 +249,6 @@ internal fun parse(args: Array<String>): Options {
             "--model-endpoint" -> options = options.copy(modelEndpoint = args[++i])
             "--model" -> options = options.copy(model = args[++i])
             "--model-key" -> options = options.copy(modelKey = args[++i])
-            "--management-key" -> options = options.copy(managementKey = args[++i])
             "--temperature" -> options = options.copy(temperature = args[++i].toDouble())
             "--goal" -> options = options.copy(goal = args[++i])
             "--max-steps" -> options = options.copy(maxSteps = args[++i].toInt())

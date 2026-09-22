@@ -210,10 +210,9 @@ class ControlServerTest {
                     Catalog(
                         listOf(
                             ModelOption("AndroPilot", "combo"),
-                            ModelOption("combo/AndroPilot", "combo"),
                             ModelOption("openai/gpt-5", "model"),
                         ),
-                        combosListed = true,
+                        listed = true,
                     )
                 },
                 configuredModel = "AndroPilot",
@@ -222,13 +221,13 @@ class ControlServerTest {
                 assertEquals(200, code)
                 assertTrue(body.contains(""""id":"AndroPilot","group":"combo""""), body)
                 assertTrue(body.contains(""""id":"openai/gpt-5","group":"model""""), body)
-                assertTrue(body.contains(""""combosListed":true"""), body)
+                assertTrue(body.contains(""""listed":true"""), body)
                 assertTrue(body.contains(""""selected":"AndroPilot""""), body)
 
                 FakeDevice(bridge.port, "t", listOf(tool("observe"))).use {
                     assertTrue(bridge.awaitDevice(5_000))
-                    assertEquals(202, post(server.port, "/run", """{"goal":"go","model":"combo/AndroPilot"}""").first)
-                    assertEquals("combo/AndroPilot", asked.get())
+                    assertEquals(202, post(server.port, "/run", """{"goal":"go","model":"AndroPilot"}""").first)
+                    assertEquals("AndroPilot", asked.get())
                 }
             }
         }
