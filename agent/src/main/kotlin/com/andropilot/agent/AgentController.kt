@@ -4,8 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.andropilot.android.AndroPilot
+import com.andropilot.core.action.PendingConfirmation
 import com.andropilot.core.observe.AgentEvent
 import com.andropilot.core.observe.AgentEventListener
+import com.andropilot.core.safety.ConfirmationOutcome
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -35,9 +37,55 @@ public object AgentController : AgentEventListener {
     private var link: AgentLink? = null
     private var mirror: Job? = null
 
-    /** Registered in `SessionConfig.listeners`; forwards to the link once one exists. */
+    private val _activity = MutableStateFlow<List<ActivityEntry>>(emptyList())
+
+    /**
+     * What the agent has been doing, newest first.
+     *
+     * Bounded, and held only in memory. This is for glancing at the phone after a run, not
+     * a record: the durable one is the event stream the host and any telemetry sink see,
+     * and a second store here would be the parallel mechanism the project already removed
+     * once.
+     */
+    public val activity: StateFlow<List<ActivityEntry>> get() = _activity.asStateFlow()
+
+    private val _pending = MutableStateFlow<List<PendingConfirmation>>(emptyList())
+
+    /**
+     * Actions stopped by the safety policy, waiting for a person.
+     *
+     * The agent ships `financialOnly()`, which leaves a financial action *pending* rather
+     * than refusing it -- and pending confirmations never expire. Without somewhere to
+     * answer, that is not a safety gate, it is a permanent stall: the action never runs and
+     * nothing on the device ever says why.
+     */
+    public val pending: StateFlow<List<PendingConfirmation>> get() = _pending.asStateFlow()
+
+    /**
+     * Registered in `SessionConfig.listeners`; forwards to the link once one exists.
+     *
+     * Called synchronously on the action path, so everything here is a list append and a
+     * flow write. Anything slower would slow the automation it is describing.
+     */
     override fun onEvent(event: AgentEvent) {
         link?.onEvent(event)
+        ActivityEntry.of(event)?.let { entry ->
+            _activity.value = (listOf(entry) + _activity.value).take(MAX_ACTIVITY)
+        }
+        when (event) {
+            is AgentEvent.ConfirmationRequired, is AgentEvent.ConfirmationResolved -> refreshPending()
+            else -> Unit
+        }
+    }
+
+    /** Answers a pending confirmation. Approving re-runs the action against the live screen. */
+    public suspend fun resolve(id: String, outcome: ConfirmationOutcome) {
+        runCatching { AndroPilot.session().resolveConfirmation(id, outcome) }
+        refreshPending()
+    }
+
+    public fun refreshPending() {
+        _pending.value = runCatching { AndroPilot.session().pendingConfirmations() }.getOrDefault(emptyList())
     }
 
     /** Connects, or reconnects with a new configuration. */
@@ -76,5 +124,54 @@ public object AgentController : AgentEventListener {
 
     public fun requestDisconnect(context: Context) {
         context.startService(Intent(context, AgentService::class.java).setAction(AgentService.ACTION_DISCONNECT))
+    }
+
+    /** Enough of a run to review it afterwards, and no more. */
+    private const val MAX_ACTIVITY = 60
+}
+
+/** One line of the phone's own account of what happened. */
+public data class ActivityEntry(
+    val at: Long,
+    val kind: Kind,
+    val text: String,
+) {
+    public enum class Kind { INTENT, ACTION, FAILURE, CONFIRMATION, NOTE }
+
+    public companion object {
+        /**
+         * Turns an event into a line, or nothing.
+         *
+         * Snapshots and action starts are dropped: a snapshot is captured several times per
+         * action by the settle loop, and a start says nothing a finish does not.
+         *
+         * Screen text reaches this list even though the app sets `allowTextInLogs = false`.
+         * That flag governs what leaves the device through a log or a sink. This is the
+         * phone's own screen, shown to the person holding it -- withholding what an action
+         * targeted would make the list useless for the one purpose it has.
+         */
+        public fun of(event: AgentEvent): ActivityEntry? = when (event) {
+            is AgentEvent.Note -> ActivityEntry(
+                at = event.at,
+                kind = if (event.data["kind"] == "intent") Kind.INTENT else Kind.NOTE,
+                text = event.message,
+            )
+            is AgentEvent.ActionFinished -> ActivityEntry(
+                at = event.at,
+                kind = if (event.result.isSuccess) Kind.ACTION else Kind.FAILURE,
+                text = event.summarize().substringAfter(' '),
+            )
+            is AgentEvent.ConfirmationRequired -> ActivityEntry(
+                at = event.at,
+                kind = Kind.CONFIRMATION,
+                text = "Waiting for you: ${event.confirmation.description}",
+            )
+            is AgentEvent.ConfirmationResolved -> ActivityEntry(
+                at = event.at,
+                kind = Kind.CONFIRMATION,
+                text = "You ${event.outcome.name.lowercase()} a confirmation.",
+            )
+            is AgentEvent.ActionStarted, is AgentEvent.SnapshotCaptured -> null
+        }
     }
 }

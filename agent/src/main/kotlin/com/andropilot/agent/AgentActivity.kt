@@ -28,9 +28,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.andropilot.android.AndroPilot
+import com.andropilot.core.safety.ConfirmationOutcome
+import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * One screen: where the model is, and whether to connect to it.
@@ -73,6 +79,16 @@ private fun AgentScreen() {
     // nothing running, and Android never retries. Reporting only "off" would show nothing
     // at all in that state, which is the least helpful thing the screen could do.
     val serviceBound by AndroPilot.serviceConnected.collectAsStateWithLifecycle()
+    val pending by AgentController.pending.collectAsStateWithLifecycle()
+    val activity by AgentController.activity.collectAsStateWithLifecycle()
+    val work = rememberCoroutineScope()
+
+    // A confirmation raised while the screen was closed is still waiting, and nothing else
+    // would ever surface it.
+    LifecycleResumeEffect(Unit) {
+        AgentController.refreshPending()
+        onPauseOrDispose {}
+    }
 
     Column(
         modifier = Modifier
@@ -118,6 +134,60 @@ private fun AgentScreen() {
                 }
             }
         }
+
+        if (pending.isNotEmpty()) {
+            Text("Waiting for you", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "The agent stopped here and will not go further until you answer. Approving " +
+                    "runs the action again against whatever is on screen now, not the screen " +
+                    "it saw when it asked.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            pending.forEach { confirmation ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(confirmation.description, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "${confirmation.action.name} · ${confirmation.risk.name.lowercase()}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        confirmation.reasons.forEach {
+                            Text("· $it", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = {
+                                work.launch {
+                                    AgentController.resolve(confirmation.id, ConfirmationOutcome.APPROVED)
+                                }
+                            }) { Text("Approve and run") }
+                            OutlinedButton(onClick = {
+                                work.launch {
+                                    AgentController.resolve(confirmation.id, ConfirmationOutcome.REJECTED)
+                                }
+                            }) { Text("Refuse") }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (activity.isNotEmpty()) {
+            Text("Recent activity", style = MaterialTheme.typography.titleMedium)
+            Text(
+                // Said plainly because the screen is otherwise misleading: it looks like a
+                // live view and cannot be one.
+                "While the agent works it is driving other apps, so this screen is not on " +
+                    "top to watch. It is here to look at afterwards.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    activity.take(40).forEach { entry -> ActivityRow(entry) }
+                }
+            }
+        }
+
+        Text("Connection", style = MaterialTheme.typography.titleMedium)
 
         OutlinedTextField(
             value = config.endpoint,
@@ -189,6 +259,25 @@ private fun AgentScreen() {
         }
     }
 }
+
+@Composable
+private fun ActivityRow(entry: ActivityEntry) {
+    val colour = when (entry.kind) {
+        ActivityEntry.Kind.FAILURE -> MaterialTheme.colorScheme.error
+        ActivityEntry.Kind.CONFIRMATION -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            TIME_FORMAT.format(Date(entry.at)),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(entry.text, style = MaterialTheme.typography.bodySmall, color = colour)
+    }
+}
+
+private val TIME_FORMAT = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
 
 private fun statusOf(state: LinkState): String = when (state) {
     is LinkState.Idle -> "Not connected."

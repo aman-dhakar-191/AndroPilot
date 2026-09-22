@@ -59,7 +59,10 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   `ActionResult.Failure` with a machine-readable `FailureReason`. Exceptions are for
   programming errors and cancellation only.
 - **Redaction is opt-out.** Screen text and typed values never reach logs unless a host sets
-  `allowTextInLogs`. This component can read every screen.
+  `allowTextInLogs`. This component can read every screen. What that flag governs is what
+  *leaves* the device through a log or a sink; showing a person their own screen's contents
+  on their own phone, in a confirmation prompt or the agent's activity list, is the opposite
+  of a leak and is not gated by it.
 - **One event stream, many sinks.** `AgentEvent` is where observability is produced;
   `results` and `snapshots` are filtered views of it, and the recorder and the Logcat
   listener are just listeners. Do not add a second parallel mechanism -- there were four
@@ -82,6 +85,12 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   demo uses) leaves a financial action pending, and pending confirmations never expire, so it
   can be approved later and approving runs it. `unattended()` refuses immediately instead.
   Pick by whether the action should eventually happen. `permissive()` stops nothing.
+- **A policy that asks needs somewhere to answer.** `financialOnly()` leaves a financial
+  action pending rather than refusing it, and pending confirmations never expire -- so an
+  app that gates on it and ships no approval UI has not built a safety gate, it has built a
+  permanent stall with nothing on the device saying why. The agent app went out that way
+  once. Any host using a confirming policy has to surface `pendingConfirmations()` and call
+  `resolveConfirmation`.
 - **Approving a confirmation RUNS the action; it is re-run, not resumed.** A human takes
   seconds to answer and the screen can move, so re-running re-resolves the selector against
   what is on screen now. An approval covers one action on one target, is consumed on use, and
