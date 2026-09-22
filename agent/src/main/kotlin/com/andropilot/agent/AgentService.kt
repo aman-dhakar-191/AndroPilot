@@ -11,7 +11,6 @@ import android.os.IBinder
 import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
-import android.view.View
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
@@ -95,32 +94,49 @@ public class AgentService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) return
         if (overlay != null) return
         overlayManager = getSystemService(WindowManager::class.java)
+        val title = TextView(this).apply {
+            text = "ANDROPILOT"
+            setTextColor(Color.rgb(174, 163, 255))
+            textSize = 11f
+            letterSpacing = 0.12f
+        }
         overlayLabel = TextView(this).apply {
             text = "Thinking about the next step"
             setTextColor(Color.WHITE)
-            textSize = 16f
+            textSize = 15f
             maxLines = 2
-            setPadding(0, 0, 8, 0)
+            maxWidth = dp(270)
         }
         overlay = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding(24, 18, 24, 18)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(12), dp(20), dp(12))
+            elevation = dp(8).toFloat()
             background = GradientDrawable().apply {
-                setColor(Color.rgb(42, 35, 72))
-                cornerRadius = 28f
+                setColor(Color.rgb(26, 28, 35))
+                cornerRadius = dp(18).toFloat()
+                setStroke(dp(1), Color.rgb(67, 70, 84))
             }
             addView(
                 ProgressBar(this@AgentService).apply {
                     isIndeterminate = true
-                    setPadding(0, 0, 18, 0)
+                    indeterminateTintList = android.content.res.ColorStateList.valueOf(
+                        Color.rgb(174, 163, 255),
+                    )
                 },
-                LinearLayout.LayoutParams(32, 32),
+                LinearLayout.LayoutParams(dp(28), dp(28)).apply {
+                    marginEnd = dp(12)
+                },
             )
-            addView(
-                overlayLabel,
-                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
-            )
+            val copy = LinearLayout(this@AgentService).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_VERTICAL
+                addView(title, LinearLayout.LayoutParams(-2, -2))
+                addView(overlayLabel, LinearLayout.LayoutParams(-2, -2).apply {
+                    topMargin = dp(2)
+                })
+            }
+            addView(copy, LinearLayout.LayoutParams(-2, -2))
         }
     }
 
@@ -129,7 +145,7 @@ public class AgentService : Service() {
         val view = overlay ?: return
         if (view.isAttachedToWindow) return
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -137,11 +153,48 @@ public class AgentService : Service() {
             android.graphics.PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = 56
-            horizontalMargin = 0.08f
+            val notch = displayCutout()
+            if (notch != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                // Dynamic-Island-style mode: use the camera cutout area as the anchor.
+                layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                y = 0
+            } else {
+                y = overlayTopInset() + dp(8)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
+                }
+            }
         }
         runCatching { overlayManager?.addView(view, params) }
     }
+
+    private fun displayCutout(): android.view.DisplayCutout? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
+        return runCatching {
+            getSystemService(WindowManager::class.java)
+                .maximumWindowMetrics
+                .windowInsets
+                .displayCutout
+                ?.takeIf { it.boundingRects.isNotEmpty() }
+        }.getOrNull()
+    }
+
+    /** Uses the platform cutout inset, with the old top offset as a device fallback. */
+    private fun overlayTopInset(): Int {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return dp(18)
+        return runCatching {
+            getSystemService(WindowManager::class.java)
+                .maximumWindowMetrics
+                .windowInsets
+                .getInsets(
+                    android.view.WindowInsets.Type.statusBars() or
+                        android.view.WindowInsets.Type.displayCutout(),
+                ).top
+        }.getOrDefault(dp(18))
+    }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt().coerceAtLeast(1)
 
     private fun removeOverlay() {
         overlay?.let { view ->

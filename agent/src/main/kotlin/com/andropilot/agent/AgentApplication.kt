@@ -12,6 +12,7 @@ import com.andropilot.core.session.SessionConfig
 import com.andropilot.telemetry.TelemetryOptions
 import com.andropilot.telemetry.TelemetrySink
 import java.io.File
+import android.util.Log
 
 /**
  * Wires the SDK up for remote operation.
@@ -66,6 +67,7 @@ public class AgentApplication : Application() {
         val old = telemetryRelay.sink
         telemetryRelay.sink = null
         runCatching { old?.close() }
+        AgentController.reportTelemetryStatus(null)
 
         if (!config.telemetryEnabled) {
             AgentController.reportTelemetryProblem(null)
@@ -99,8 +101,11 @@ public class AgentApplication : Application() {
         }.onSuccess {
             telemetryRelay.sink = it
             AgentController.reportTelemetryProblem(null)
+            AgentController.reportTelemetryStatus("Telemetry active: $endpoint")
+            Log.i("AndroPilot-telemetry", "Telemetry active at $endpoint")
         }.onFailure {
             AgentController.reportTelemetryProblem(it.message ?: "The telemetry endpoint was rejected.")
+            Log.e("AndroPilot-telemetry", "Could not start telemetry at $endpoint", it)
         }
     }
 }

@@ -89,6 +89,7 @@ private fun AgentScreen() {
     val serviceBound by AndroPilot.serviceConnected.collectAsStateWithLifecycle()
     val pending by AgentController.pending.collectAsStateWithLifecycle()
     val telemetryProblem by AgentController.telemetryProblem.collectAsStateWithLifecycle()
+    val telemetryStatus by AgentController.telemetryStatus.collectAsStateWithLifecycle()
     val activity by AgentController.activity.collectAsStateWithLifecycle()
     val work = rememberCoroutineScope()
 
@@ -216,6 +217,9 @@ private fun AgentScreen() {
                     )
                 }
             }
+        }
+        telemetryStatus?.let { status ->
+            Text(status, style = MaterialTheme.typography.bodySmall)
         }
 
         // Shown even when empty, because a section that appears only once it has content

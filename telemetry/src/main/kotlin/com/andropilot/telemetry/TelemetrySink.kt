@@ -72,6 +72,9 @@ public class TelemetrySink private constructor(
     public var uploaded: Long = 0
         private set
 
+    /** Number of bytes currently waiting in the local spool. */
+    public val pendingBytes: Long get() = spool.pending().sumOf { it.length() }
+
     /** Records dropped because the spool filled up. A gap the server should be told about. */
     public val dropped: Long get() = spool.dropped
 

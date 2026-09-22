@@ -71,6 +71,13 @@ public object AgentController : AgentEventListener {
         _telemetryProblem.value = message
     }
 
+    private val _telemetryStatus = MutableStateFlow<String?>(null)
+    public val telemetryStatus: StateFlow<String?> get() = _telemetryStatus.asStateFlow()
+
+    public fun reportTelemetryStatus(message: String?) {
+        _telemetryStatus.value = message
+    }
+
     private val _pending = MutableStateFlow<List<PendingConfirmation>>(emptyList())
 
     /**
