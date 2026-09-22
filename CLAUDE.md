@@ -181,7 +181,18 @@ Three build decisions look like bugs and are not. Do not "fix" them:
 - **The demo's versionCode packing is duplicated** in `demo/build.gradle.kts` and
   `AppUpdater.versionCodeOf`. If they diverge, a newer release looks older than what is
   installed and the in-app update is silently never offered.
-- **The updater lives in `:andropilot-devtools`, never the SDK, and depends on neither.**
+- **The permission to install packages lives in `:andropilot-updater` and nowhere else.**
+  It is its own app with no SDK, no accessibility service and no automation code, and it is
+  the only thing on the device declaring `REQUEST_INSTALL_PACKAGES`. The inspector used to
+  declare it while also running an accessibility service, which is the pair this project
+  calls a malware primitive; splitting them means no single component has both. An updater
+  that can only update itself has to live inside every app it serves, which is why
+  `AppUpdater` takes an `UpdateTarget` rather than assuming `context.packageName`.
+- **Updating an app switches off its accessibility service.** Replacing a package kills its
+  processes, the binding is recorded as crashed, and Android never rebinds -- see the
+  gotcha below. The updater says so before installing; anything else that replaces these
+  apps should too, because the symptom is indistinguishable from a broken install.
+- **The updater library lives in `:andropilot-devtools`, never the SDK, and depends on neither.**
   An automation library that could also download and install packages is a different and far
   more dangerous thing, so combining them stays an explicit choice a consumer makes by adding
   the dependency. The module declares `INTERNET` but deliberately NOT

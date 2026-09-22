@@ -65,15 +65,16 @@ public class AppUpdater(
     /** The GitHub repository to read releases from, as `owner/name`. */
     private val repository: String,
     /**
-     * Part of the APK asset's filename, when a release carries more than one.
+     * Which app to look after. Defaults to the one asking.
      *
-     * A repository that ships two apps puts two APKs on every release, and nothing in the
-     * asset list says which belongs to which. Without this the updater refuses to choose
-     * rather than picking by alphabetical accident -- which is how the inspector spent
-     * several releases installing the agent over itself.
+     * An updater that can only update itself has to live inside every app it serves, which
+     * means every one of them carries the permission to install packages. Naming the target
+     * lets that permission sit in one place instead.
      */
-    private val apkAsset: String? = null,
+    private val target: UpdateTarget = UpdateTarget(context.packageName),
 ) {
+
+    private val apkAsset: String? get() = target.apkAsset
 
     // Its own parser rather than the SDK's: this module does not depend on the SDK, so an
     // app can use the updater without embedding an automation library, and the SDK never
@@ -156,15 +157,16 @@ public class AppUpdater(
      */
     public fun install(file: File): UpdateState {
         // Belt and braces over the asset choice above. Reading the archive's own package
-        // name is the only check that cannot be fooled by a filename, and handing the
-        // installer a different application than the one asking is the failure worth being
-        // certain about -- when the two share a signing key it otherwise succeeds silently.
+        // name is the only check a filename cannot fool, and it matters more now that an
+        // updater looks after apps other than itself: the question is no longer "is this
+        // me" but "is this the app I said I was updating". When everything shares a signing
+        // key the wrong answer installs cleanly and says nothing.
         val archived = runCatching {
             context.packageManager.getPackageArchiveInfo(file.absolutePath, 0)?.packageName
         }.getOrNull()
-        if (archived != null && archived != context.packageName) {
+        if (archived != null && archived != target.packageName) {
             return UpdateState.Failed(
-                "That download is $archived, not ${context.packageName}. Refusing to install " +
+                "That download is $archived, not ${target.packageName}. Refusing to install " +
                     "a different app. Check which asset the updater is configured to take.",
             )
         }
@@ -224,13 +226,20 @@ public class AppUpdater(
     public fun downloadedBytes(): Long =
         downloadDir.listFiles().orEmpty().sumOf { it.length() }
 
+    /** "unknown" also covers the target not being installed at all. */
     public fun installedVersionName(): String = runCatching {
-        context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "unknown"
+        context.packageManager.getPackageInfo(target.packageName, 0).versionName ?: "unknown"
     }.getOrDefault("unknown")
+
+    /** False when the target is not on the device, so the UI can offer an install instead. */
+    public fun isInstalled(): Boolean = runCatching {
+        context.packageManager.getPackageInfo(target.packageName, 0)
+        true
+    }.getOrDefault(false)
 
     @Suppress("DEPRECATION")
     public fun installedVersionCode(): Int = runCatching {
-        val info = context.packageManager.getPackageInfo(context.packageName, 0)
+        val info = context.packageManager.getPackageInfo(target.packageName, 0)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             info.longVersionCode.toInt()
         } else {

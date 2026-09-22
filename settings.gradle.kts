@@ -58,6 +58,10 @@ if (androidSdkDir != null && file(androidSdkDir).isDirectory) {
     project(":demo").projectDir = file("demo")
     include(":andropilot-agent")
     project(":andropilot-agent").projectDir = file("agent")
+    // Its own app so the permission to install packages lives apart from anything that can
+    // read or tap a screen.
+    include(":andropilot-updater")
+    project(":andropilot-updater").projectDir = file("updater")
 } else {
     logger.lifecycle(
         "[andropilot] No Android SDK found (ANDROID_HOME / ANDROID_SDK_ROOT / local.properties). " +

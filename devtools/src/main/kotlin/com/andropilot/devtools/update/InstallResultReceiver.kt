@@ -36,7 +36,7 @@ public class InstallResultReceiver : BroadcastReceiver() {
             PackageInstaller.STATUS_SUCCESS -> {
                 // The new APK is live; the copy that produced it is now dead weight.
                 runCatching {
-                    AppUpdater(context.applicationContext, AppUpdates.requireRepository(), AppUpdates.apkAsset())
+                    AppUpdater(context.applicationContext, AppUpdates.requireRepository())
                         .cleanUpDownloads()
                 }
                 toast(context, "Update installed.")

@@ -2,15 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!--
-      Declared here, by the app, not by :andropilot-devtools. The library leaves this to the
-      consumer on purpose so no app inherits an install permission it did not ask for.
+      No REQUEST_INSTALL_PACKAGES here, deliberately.
 
-      It lets the inspector hand a downloaded APK to the system installer, which then shows
-      its own confirmation. Nothing here installs silently, and nothing automates that
-      dialog. This app also runs an accessibility service, and a component that can both
-      choose what to install and tap "Install" would be a malware primitive.
+      Updating moved to its own app. This one runs an accessibility service, and an app
+      that can both choose what to install and tap "Install" is a malware primitive
+      whatever the intent. Keeping the two apart means no component on the device has both.
     -->
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:name=".DemoApplication"
