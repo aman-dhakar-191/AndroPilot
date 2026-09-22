@@ -28,7 +28,14 @@ public data class HostSettings(
     val skills: String? = null,
     @SerialName("telemetryDir") val telemetryDir: String? = null,
     @SerialName("modelEndpoint") val modelEndpoint: String? = null,
-    val model: String? = null,
+    /**
+     * What to ask the endpoint for: a model id, or the name of a gateway construct that
+     * stands in for one -- an OmniRoute combo, for instance, is addressed by its own name
+     * and picks a model behind it. The host does not care which; it sends the string.
+     */
+    @SerialName("modelId") val modelId: String? = null,
+    /** Read when `modelId` is absent, for files written before the field was renamed. */
+    @SerialName("model") val legacyModel: String? = null,
     /**
      * The model API key.
      *
@@ -37,7 +44,9 @@ public data class HostSettings(
      * where anything that can list processes reads it. `ANDROPILOT_MODEL_KEY` still wins if
      * it is set, and the file is created with owner-only permissions.
      */
-    @SerialName("modelKey") val modelKey: String? = null,
+    @SerialName("apiKey") val apiKey: String? = null,
+    /** Read when `apiKey` is absent, for files written before the field was renamed. */
+    @SerialName("modelKey") val legacyModelKey: String? = null,
     val temperature: Double? = null,
     @SerialName("maxSteps") val maxSteps: Int? = null,
 ) {
@@ -102,8 +111,9 @@ internal fun Options.withDefaultsFrom(settings: HostSettings): Options {
         telemetryDirectory = if (telemetryDirectory != fallback.telemetryDirectory) telemetryDirectory
         else settings.telemetryDir?.let(::File) ?: telemetryDirectory,
         modelEndpoint = modelEndpoint ?: settings.modelEndpoint,
-        model = if (model != fallback.model) model else settings.model ?: model,
-        modelKey = modelKey ?: settings.modelKey,
+        model = if (model != fallback.model) model
+        else settings.modelId ?: settings.legacyModel ?: model,
+        modelKey = modelKey ?: settings.apiKey ?: settings.legacyModelKey,
         temperature = temperature ?: settings.temperature,
         maxSteps = if (maxSteps != fallback.maxSteps) maxSteps else settings.maxSteps ?: maxSteps,
     )

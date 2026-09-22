@@ -38,11 +38,17 @@ That builds if it needs to, then prints the two things the phone needs:
   "token": "the shared secret the phone presents",
   "ingestPort": 8766,
   "uiPort": 8080,
-  "modelEndpoint": "http://localhost:4000/v1",
-  "model": "the model id your gateway uses",
-  "modelKey": "the api key"
+  "modelEndpoint": "http://localhost:20128/v1",
+  "modelId": "a model id, or a gateway combo name",
+  "apiKey": "the api key"
 }
 ```
+
+`modelId` is whatever string your gateway answers to. It does not have to be a model:
+an OmniRoute combo is addressed by its own name (`"AndroPilot"`, say) and picks a model
+behind it, so a fallback chain configured there is invisible to the host, which only ever
+sends the string. Older files that spell these fields `model` and `modelKey` are still
+read, so nothing breaks by not renaming them.
 
 Every field is optional, and anything on the command line overrides the file — a settings
 file you could not override for one run would be worse than typing the flags. A malformed

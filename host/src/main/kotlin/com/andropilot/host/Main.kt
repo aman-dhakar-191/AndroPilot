@@ -243,9 +243,9 @@ Settings file (~/.andropilot-host/settings.json), so none of this has to be type
     "ingestPort": 8766,
     "uiPort": 8080,
     "skills": "B:\\AndroPilot\\skills",
-    "modelEndpoint": "http://localhost:4000/v1",
-    "model": "the model id your gateway uses",
-    "modelKey": "the api key"
+    "modelEndpoint": "http://localhost:20128/v1",
+    "modelId": "a model id, or a gateway combo name",
+    "apiKey": "the api key"
   }
 
 Every field is optional and the command line overrides all of them. The file is created
