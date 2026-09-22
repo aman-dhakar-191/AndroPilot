@@ -45,6 +45,8 @@ public object AgentController : AgentEventListener {
     private val _workingText = MutableStateFlow("AndroPilot working")
     public val workingText: StateFlow<String> get() = _workingText.asStateFlow()
 
+    private var hostRunActive = false
+
     /**
      * What the agent has been doing, newest first.
      *
@@ -91,16 +93,20 @@ public object AgentController : AgentEventListener {
         link?.onEvent(event)
         when (event) {
             is AgentEvent.ActionStarted -> {
-                _workingText.value = "AndroPilot acting"
+                _workingText.value = "Step: ${event.action.name}"
                 _working.value = true
             }
-            is AgentEvent.ActionFinished -> _working.value = false
+            is AgentEvent.ActionFinished -> if (!hostRunActive) _working.value = false
             is AgentEvent.Note -> when (event.data["kind"]) {
                 "intent" -> {
+                    hostRunActive = true
                     _workingText.value = event.message.take(80)
                     _working.value = true
                 }
-                "conclusion" -> _working.value = false
+                "conclusion" -> {
+                    hostRunActive = false
+                    _working.value = false
+                }
                 else -> Unit
             }
             else -> Unit
@@ -139,6 +145,7 @@ public object AgentController : AgentEventListener {
         link?.stop()
         link = null
         _state.value = LinkState.Idle
+        hostRunActive = false
         _working.value = false
         _workingText.value = "AndroPilot working"
     }
