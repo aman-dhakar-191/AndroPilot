@@ -145,6 +145,12 @@ jobs:
             :demo:assembleRelease \
             :andropilot-agent:assembleRelease --stacktrace
 
+      # Runs here rather than in the JVM job because :andropilot-devtools is an Android
+      # library and needs the SDK to configure at all. The logic under test is pure -- which
+      # APK on a release belongs to this app -- and it got that wrong in production once.
+      - name: Unit-test the devtools module
+        run: ./gradlew :andropilot-devtools:testDebugUnitTest --stacktrace
+
       - name: Lint
         run: ./gradlew :andropilot-android:lintRelease :andropilot-devtools:lintRelease --stacktrace
 
@@ -181,4 +187,12 @@ jobs:
         with:
           name: android-lint-report
           path: android/build/reports/lint-results-release.html
+          if-no-files-found: ignore
+
+      - name: Upload the devtools test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: devtools-test-report
+          path: devtools/build/reports/tests/testDebugUnitTest
           if-no-files-found: ignore

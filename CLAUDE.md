@@ -170,6 +170,14 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   the default is patch and anything larger is stated rather than guessed. A tag push still
   wins outright. The step refuses a version that already has a tag, and one whose minor or
   patch has reached 100, because that would break the versionCode packing below.
+- **A release carries an APK per app, and the updater has to be told which is its own.**
+  `AppUpdates.configure(repository, apkAsset = ...)`. The GitHub API returns assets sorted
+  by name, so "the first one ending in .apk" -- correct while the repository shipped one app
+  -- silently became "whichever sorts first" when the agent was added, and the inspector
+  spent several releases installing the agent over itself. Both apps share a signing key, so
+  it succeeded and nothing reported a problem. With more than one candidate and no hint the
+  updater now refuses rather than guesses, and `install` re-reads the downloaded archive's
+  own package name before handing it to the installer.
 - **The demo's versionCode packing is duplicated** in `demo/build.gradle.kts` and
   `AppUpdater.versionCodeOf`. If they diverge, a newer release looks older than what is
   installed and the in-app update is silently never offered.

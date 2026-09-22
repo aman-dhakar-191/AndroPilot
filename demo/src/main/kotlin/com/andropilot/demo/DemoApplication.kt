@@ -30,7 +30,11 @@ class DemoApplication : Application() {
 
         // Point the updater at this repository's releases. The library has no default: one
         // would silently check someone else's releases and look like "no update available".
-        AppUpdates.configure("aman-dhakar-191/AndroPilot")
+        // The asset name matters: every release carries both this app's APK and the agent's,
+        // and without something to tell them apart the updater would take whichever sorted
+        // first -- which for several releases meant this app dutifully installing the agent
+        // over itself while never updating.
+        AppUpdates.configure("aman-dhakar-191/AndroPilot", apkAsset = "andropilot-demo")
 
         AndroPilot.initialize(
             context = this,
