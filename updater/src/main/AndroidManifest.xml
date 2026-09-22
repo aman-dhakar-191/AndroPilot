@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Declared here and nowhere else.
+
+      An app that can choose what to install and an app that can tap the screen are a
+      dangerous pair when they are the same app. This one has no SDK, no accessibility
+      service and no automation code; it only fetches releases and hands them to the
+      system installer, which shows its own confirmation every time.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!--
+      Android 11 and above hide other installed apps unless they are named. Without this,
+      asking the package manager which version of the inspector is installed throws
+      NameNotFoundException, and the screen would report both apps as missing.
+    -->
+    <queries>
+        <package android:name="com.andropilot.demo" />
+        <package android:name="com.andropilot.agent" />
+    </queries>
+
+    <application
+        android:name=".UpdaterApplication"
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AndroPilotUpdater">
+
+        <activity
+            android:name=".UpdaterActivity"
+            android:exported="true"
+            android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

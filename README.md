@@ -65,6 +65,9 @@ andropilot-host      Pure Kotlin/JVM. Runs on your machine: the bridge the phone
 demo                 An inspector app for validating the SDK on a real device.
 andropilot-agent     An app that connects a device to a host you configure, so a model
                      running on your own machine can drive it.
+andropilot-updater   A small app whose only job is keeping the other two current. Separate
+                     so the permission to install packages is nowhere near an app that can
+                     read and tap a screen.
 ```
 
 `andropilot-core`, `-protocol`, `-telemetry` and `-host` build and test with **no Android
@@ -90,6 +93,7 @@ present.
 ./gradlew :andropilot-android:assembleRelease   # requires an Android SDK
 ./gradlew :demo:assembleRelease
 ./gradlew :andropilot-agent:assembleRelease
+./gradlew :andropilot-updater:assembleRelease
 ```
 
 Releases are built and published by GitHub Actions. Run the **Release** workflow and leave

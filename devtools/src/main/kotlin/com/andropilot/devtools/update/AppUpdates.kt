@@ -21,6 +21,8 @@ public object AppUpdates {
 
     /**
      * @param repository the GitHub repository holding the releases, as `owner/name`.
+     *   Only used for an app updating itself. An updater looking after other apps names
+     *   each one with an `UpdateTarget` instead.
      * @param apkAsset part of the APK filename identifying this app, needed when the
      *   repository ships more than one app and every release therefore carries more than one
      *   APK. Without it the updater refuses to choose rather than picking whichever sorts
