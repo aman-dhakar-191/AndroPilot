@@ -12,7 +12,11 @@ Use this workflow for every Android app. App-specific skills are hints, not subs
 ## Navigating
 
 - Use `launch_app` with the exact package from `list_apps`, then wait for the foreground package.
-- Search within an app when a search field exists instead of guessing menu paths.
+- After observing, first check whether the requested target is already visible. Open the
+	visible matching row directly, using its specific resource id, role, label, or nearby
+	parent. Do not open an app search screen for a target that is already on the current page.
+- Use in-app search only when the target is not visible, below the fold after a reasonable
+	scroll, or not identifiable from the current screen. Search is a fallback, not the default.
 - Scroll only when the target is not visible. If a selector fails, observe before retrying; do not repeat a stale selector.
 - When multiple elements match, use role, resource id, index, region, or a nearby parent to disambiguate. Never choose randomly.
 - Use `press_key` with `back` to close dialogs, notification shade, and Quick Settings. Use `notifications` for the notification shade and `quick_settings` for the expanded control centre.
