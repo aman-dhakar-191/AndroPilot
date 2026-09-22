@@ -93,14 +93,14 @@ public object AgentController : AgentEventListener {
         link?.onEvent(event)
         when (event) {
             is AgentEvent.ActionStarted -> {
-                _workingText.value = "Step: ${event.action.name}"
+                _workingText.value = friendlyAction(event.action.name)
                 _working.value = true
             }
             is AgentEvent.ActionFinished -> if (!hostRunActive) _working.value = false
             is AgentEvent.Note -> when (event.data["kind"]) {
                 "intent" -> {
                     hostRunActive = true
-                    _workingText.value = event.message.take(80)
+                    _workingText.value = "Thinking about the next step"
                     _working.value = true
                 }
                 "conclusion" -> {
@@ -118,6 +118,27 @@ public object AgentController : AgentEventListener {
             is AgentEvent.ConfirmationRequired, is AgentEvent.ConfirmationResolved -> refreshPending()
             else -> Unit
         }
+    }
+
+    private fun friendlyAction(name: String): String = when (name) {
+        "observe" -> "Checking the screen"
+        "screenshot" -> "Looking at the screen"
+        "find_element" -> "Finding something on screen"
+        "element_exists" -> "Checking whether it is visible"
+        "click" -> "Tapping the selected control"
+        "click_point" -> "Tapping the screen"
+        "long_press" -> "Pressing and holding"
+        "type_text" -> "Entering text"
+        "clear_text" -> "Clearing text"
+        "scroll", "scroll_until" -> "Looking further down"
+        "swipe" -> "Swiping the screen"
+        "press_key" -> "Opening a system panel"
+        "launch_app" -> "Opening an app"
+        "open_intent" -> "Opening a system screen"
+        "wait_for" -> "Waiting for the screen"
+        "sleep" -> "Pausing briefly"
+        "verify" -> "Verifying the result"
+        else -> "Working on your request"
     }
 
     /** Answers a pending confirmation. Approving re-runs the action against the live screen. */

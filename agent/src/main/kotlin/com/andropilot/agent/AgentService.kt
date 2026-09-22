@@ -11,6 +11,9 @@ import android.os.IBinder
 import android.provider.Settings
 import android.view.Gravity
 import android.view.WindowManager
+import android.view.View
+import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -35,7 +38,8 @@ public class AgentService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var watcher: Job? = null
     private var overlayWatcher: Job? = null
-    private var overlay: TextView? = null
+    private var overlay: LinearLayout? = null
+    private var overlayLabel: TextView? = null
     private var overlayManager: WindowManager? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -79,8 +83,8 @@ public class AgentService : Service() {
         overlayWatcher = scope.launch {
             AgentController.working.combine(AgentController.workingText) { working, text -> working to text }
                 .collect { (working, text) ->
+                overlayLabel?.text = text
                 if (working) showOverlay() else removeOverlay()
-                overlay?.text = text
             }
         }
     }
@@ -89,15 +93,32 @@ public class AgentService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) return
         if (overlay != null) return
         overlayManager = getSystemService(WindowManager::class.java)
-        overlay = TextView(this).apply {
-            text = "AndroPilot working"
+        overlayLabel = TextView(this).apply {
+            text = "Thinking about the next step"
             setTextColor(Color.WHITE)
-            textSize = 12f
-            setPadding(18, 8, 18, 8)
+            textSize = 16f
+            maxLines = 2
+            setPadding(0, 0, 8, 0)
+        }
+        overlay = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(24, 18, 24, 18)
             background = GradientDrawable().apply {
-                setColor(Color.rgb(35, 35, 42))
-                cornerRadius = 40f
+                setColor(Color.rgb(42, 35, 72))
+                cornerRadius = 28f
             }
+            addView(
+                ProgressBar(this@AgentService).apply {
+                    isIndeterminate = true
+                    setPadding(0, 0, 18, 0)
+                },
+                LinearLayout.LayoutParams(32, 32),
+            )
+            addView(
+                overlayLabel,
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f),
+            )
         }
     }
 
@@ -106,7 +127,7 @@ public class AgentService : Service() {
         val view = overlay ?: return
         if (view.isAttachedToWindow) return
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -114,7 +135,8 @@ public class AgentService : Service() {
             android.graphics.PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = 48
+            y = 56
+            horizontalMargin = 0.08f
         }
         runCatching { overlayManager?.addView(view, params) }
     }
