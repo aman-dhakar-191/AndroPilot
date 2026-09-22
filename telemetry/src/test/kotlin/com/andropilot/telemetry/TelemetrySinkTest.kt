@@ -18,9 +18,11 @@ class TelemetrySinkTest {
     /** Records what it was handed and can be told to fail, so no test opens a socket. */
     private class FakeTransport(var outcome: UploadOutcome = UploadOutcome.ACCEPTED) : TelemetryTransport {
         val batches = mutableListOf<TelemetryBatch>()
-        override fun upload(batch: TelemetryBatch): UploadOutcome {
+        var status: Int? = 200
+        var detail: String? = null
+        override fun upload(batch: TelemetryBatch): UploadResult {
             batches += batch
-            return outcome
+            return UploadResult(outcome, status, detail)
         }
     }
 

@@ -18,6 +18,21 @@ public enum class UploadOutcome {
 }
 
 /**
+ * What one upload attempt did, in enough detail to debug it.
+ *
+ * The outcome alone decides what the sink does next; the status and detail exist so a
+ * person can tell a rejected token from a refused connection from a 500, which are three
+ * very different problems that otherwise all present as "telemetry is not working".
+ */
+public data class UploadResult(
+    val outcome: UploadOutcome,
+    /** The HTTP status, when the attempt got far enough to have one. */
+    val status: Int? = null,
+    /** What went wrong, for a log. Never record content. */
+    val detail: String? = null,
+)
+
+/**
  * Where a batch of records goes.
  *
  * An interface so tests never open a socket, and so a host that wants to ship records
@@ -25,7 +40,7 @@ public enum class UploadOutcome {
  * NAS -- does not have to reimplement the spooling around it.
  */
 public fun interface TelemetryTransport {
-    public fun upload(batch: TelemetryBatch): UploadOutcome
+    public fun upload(batch: TelemetryBatch): UploadResult
 }
 
 /** One upload: the JSON Lines records plus the identity of the run that produced them. */
@@ -66,7 +81,10 @@ public class HttpTelemetryTransport(
         }
     }
 
-    override fun upload(batch: TelemetryBatch): UploadOutcome {
+    /** The endpoint, for logs and status rows. Carries no token. */
+    public val describe: String get() = endpoint
+
+    override fun upload(batch: TelemetryBatch): UploadResult {
         val body = gzip(batch.lines.joinToString("\n", postfix = "\n"))
         val connection = (URI(endpoint).toURL().openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -82,17 +100,42 @@ public class HttpTelemetryTransport(
         }
         return try {
             connection.outputStream.use { it.write(body) }
-            when (val code = connection.responseCode) {
-                in 200..299 -> UploadOutcome.ACCEPTED
-                408, 429, in 500..599 -> UploadOutcome.RETRY
-                else -> if (code == 401 || code == 403) UploadOutcome.REJECTED else UploadOutcome.REJECTED
+            val code = connection.responseCode
+            when (code) {
+                in 200..299 -> UploadResult(UploadOutcome.ACCEPTED, code)
+                408, 429, in 500..599 -> UploadResult(UploadOutcome.RETRY, code, reasonFor(code, connection))
+                else -> UploadResult(UploadOutcome.REJECTED, code, reasonFor(code, connection))
             }
         } catch (e: Exception) {
             // Offline, DNS failure, TLS handshake failure: all are "try again later".
-            UploadOutcome.RETRY
+            UploadResult(
+                UploadOutcome.RETRY,
+                status = null,
+                detail = "${e::class.java.simpleName}: ${e.message ?: "no detail"}",
+            )
         } finally {
             runCatching { connection.disconnect() }
         }
+    }
+
+    /**
+     * What the server said, when it said anything.
+     *
+     * The body is read because an ingest that refuses a batch usually explains why, and
+     * that sentence is the whole difference between "telemetry is broken" and "the token
+     * is wrong". Capped, because it is a log line and not a payload.
+     */
+    private fun reasonFor(code: Int, connection: HttpURLConnection): String {
+        val body = runCatching {
+            connection.errorStream?.readBytes()?.toString(Charsets.UTF_8)?.trim()
+        }.getOrNull().orEmpty()
+        val hint = when (code) {
+            401, 403 -> "the shared token was refused"
+            404 -> "no ingest is listening at this path"
+            413 -> "the batch was too large"
+            else -> "HTTP $code"
+        }
+        return if (body.isBlank()) hint else "$hint: ${body.take(200)}"
     }
 
     private fun gzip(text: String): ByteArray {

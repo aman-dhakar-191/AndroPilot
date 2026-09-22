@@ -27,12 +27,28 @@ public class IngestServer(
     private val directory: File,
     private val token: String,
     bindAddress: String = "127.0.0.1",
+    /**
+     * Where this server's own diagnostics go.
+     *
+     * Every request is reported, accepted or not. An ingest that is silent is
+     * indistinguishable from one that is not running, and "is anything arriving at all" is
+     * the first question anybody debugging telemetry asks.
+     */
+    private val log: (String) -> Unit = { System.err.println(it) },
 ) : AutoCloseable {
 
     private val server = HttpServer.create(InetSocketAddress(bindAddress, port), 16)
 
     /** Batches accepted since start. */
     public var accepted: Long = 0
+        private set
+
+    /** Records written to disk since start. */
+    public var records: Long = 0
+        private set
+
+    /** Requests refused, for any reason. */
+    public var rejected: Long = 0
         private set
 
     init {
@@ -46,11 +62,20 @@ public class IngestServer(
     public fun start(): IngestServer = apply { server.start() }
 
     private fun handle(exchange: HttpExchange) {
+        val from = exchange.remoteAddress
         try {
-            if (exchange.requestMethod != "POST") return respond(exchange, 405, "POST only")
+            if (exchange.requestMethod != "POST") {
+                rejected++
+                log("[ingest] ${exchange.requestMethod} from $from refused: this endpoint takes POST")
+                return respond(exchange, 405, "POST only")
+            }
             val presented = exchange.requestHeaders.getFirst("Authorization")?.removePrefix("Bearer ")?.trim()
             if (presented != token) {
-                System.err.println("[ingest] rejected a batch with a bad token from ${exchange.remoteAddress}")
+                rejected++
+                log(
+                    "[ingest] refused a batch from $from: " +
+                        if (presented == null) "no Authorization header" else "the token does not match this host's",
+                )
                 return respond(exchange, 401, "bad token")
             }
 
@@ -61,7 +86,11 @@ public class IngestServer(
             val run = exchange.requestHeaders.getFirst("X-AndroPilot-Run") ?: "unknown"
             val device = exchange.requestHeaders.getFirst("X-AndroPilot-Device") ?: "unknown"
             val lines = body.lineSequence().filter { it.isNotBlank() }.toList()
-            if (lines.isEmpty()) return respond(exchange, 204, "")
+            if (lines.isEmpty()) {
+                log("[ingest] empty batch from $from (device $device, run $run) -- nothing written")
+                return respond(exchange, 204, "")
+            }
+            log("[ingest] ${lines.size} record(s) from $from (device $device, run $run)${if (gzipped) ", gzipped" else ""}")
 
             // The run and device are added here rather than inside every record: they are
             // constant for a batch, and repeating them per line would inflate the upload
@@ -69,12 +98,17 @@ public class IngestServer(
             val envelope = lines.joinToString("\n", postfix = "\n") { line ->
                 """{"run":"${escape(run)}","device":"${escape(device)}","record":$line}"""
             }
-            target().appendText(envelope, Charsets.UTF_8)
+            val file = target()
+            file.appendText(envelope, Charsets.UTF_8)
             accepted++
+            records += lines.size
+            log("[ingest] wrote ${lines.size} record(s) to ${file.path} (${records} total this session)")
             respond(exchange, 200, "ok")
         } catch (e: Exception) {
             // 500 rather than a drop: the client keeps the batch and retries, which is the
             // behaviour that makes an ingest outage cost nothing.
+            rejected++
+            log("[ingest] failed to store a batch from $from: ${e::class.java.simpleName}: ${e.message}")
             respond(exchange, 500, e.message ?: "error")
         } finally {
             exchange.close()

@@ -84,6 +84,22 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   could contain screen content, including the prose the SDK composes from a screen (match
   reasons, diff summaries, failure messages, confirmation descriptions), not just the
   snapshot.
+- **A constructed sink is not a reachable server, and the UI must not say it is.**
+  `TelemetrySink.http(...)` returning successfully means a spool directory exists and the
+  endpoint parsed -- nothing has left the device. Reporting that as "active" made a
+  mistyped host indistinguishable from a working one. `TelemetryState` separates
+  `INITIALIZED` from `CONNECTED`, and only an accepted POST reaches the second. The sink
+  proves it with a `telemetry_initialized` record posted as soon as the uploader thread
+  starts, rather than waiting a flush interval for something to happen to record -- and
+  because it goes through the ordinary path it lands in the same file as everything else,
+  so "did this device ever connect" stays answerable afterwards. The handshake runs on the
+  uploader thread: doing it where the sink is constructed would be network I/O on
+  Android's main thread, which the platform refuses.
+- **The agent socket and telemetry are different connections and are reported separately.**
+  8765 carries control, 8766 carries records, and one being up has never implied the other.
+- **`UploadResult` carries the status code and the server's own words.** A bare outcome
+  made a refused token, a refused connection and a 500 all present as "telemetry is not
+  working", which are three different problems with three different fixes.
 - **Risk has two axes.** `RiskLevel` is how bad, `RiskCategory` is what kind of harm. Keep
   them separate: a single scale cannot express "ask about money but not about deleting",
   because those sit at the same level. `gatedCategories` narrows what is ever stopped.

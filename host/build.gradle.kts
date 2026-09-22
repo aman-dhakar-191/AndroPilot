@@ -22,6 +22,10 @@ kotlin {
 dependencies {
     implementation(project(":andropilot-protocol"))
 
+    // Test-only: the end-to-end telemetry test drives a real sink into a real ingest
+    // server. The host does not depend on telemetry at runtime and must not start to --
+    // it is the receiving end, not a producer.
+    testImplementation(project(":andropilot-telemetry"))
     testImplementation(libs.junit.jupiter)
     testRuntimeOnly(libs.junit.platform.launcher)
 }
