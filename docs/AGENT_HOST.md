@@ -53,6 +53,12 @@ startup and warns when `modelId` is not in it, because a gateway that rejects a 
 usually says only that it did, not what would have worked. An endpoint with no `/models` is
 fine -- the box still accepts a name typed by hand, sent through untouched.
 
+**A gateway's own groups are not in `/v1/models`.** That endpoint is the OpenAI-shaped
+catalogue and lists models. A combo is OmniRoute's own concept and lives at
+`GET {host}/api/combos`, *beside* `/v1` rather than under it, so the host reads both and
+the page groups them. If the list shows models but no combos at all, the gateway reported
+none -- which means the combo is not saved, not that the name is misspelled.
+
 **OmniRoute combos.** A persisted combo (Settings -> Combos) is matched on its *exact*
 name, with no fuzzy matching, and `combo/<name>` is the unambiguous spelling. `auto` and
 `auto/*` are a different mechanism that builds their own candidate pool and deliberately do

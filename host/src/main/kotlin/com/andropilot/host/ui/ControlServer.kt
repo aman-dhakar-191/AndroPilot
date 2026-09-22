@@ -2,6 +2,7 @@ package com.andropilot.host.ui
 
 import com.andropilot.host.AgentBridge
 import com.andropilot.host.agent.AgentLoop
+import com.andropilot.host.agent.ModelOption
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import kotlinx.serialization.builtins.serializer
@@ -40,7 +41,7 @@ public class ControlServer(
      * The page offers the list rather than making somebody type a name that only the
      * gateway knows the spelling of.
      */
-    private val modelCatalog: () -> List<String> = ::emptyList,
+    private val modelCatalog: () -> List<ModelOption> = ::emptyList,
     private val configuredModel: String? = null,
 ) : AutoCloseable {
 
@@ -171,7 +172,11 @@ public class ControlServer(
      */
     private fun models(exchange: HttpExchange) {
         val names = runCatching { modelCatalog() }.getOrDefault(emptyList())
-        val list = names.joinToString(",") { json.encodeToString(String.serializer(), it) }
+        val list = names.joinToString(",") { option ->
+            val id = json.encodeToString(String.serializer(), option.id)
+            val group = json.encodeToString(String.serializer(), option.group)
+            """{"id":$id,"group":$group}"""
+        }
         val selected = configuredModel?.let { json.encodeToString(String.serializer(), it) } ?: "null"
         respond(exchange, 200, "application/json", """{"models":[$list],"selected":$selected}""")
     }

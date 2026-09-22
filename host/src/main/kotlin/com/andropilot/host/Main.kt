@@ -89,11 +89,23 @@ public fun main(args: Array<String>) {
             // them at startup turns a 400 that says only "unknown model" into a spelling
             // you can copy -- a gateway's group names are typed into a dashboard, and
             // nothing here can infer them.
-            val names = catalog?.list().orEmpty()
-            if (names.isNotEmpty()) {
-                System.err.println("[host] Endpoint offers ${names.size} model(s): ${names.take(12).joinToString(", ")}${if (names.size > 12) ", ..." else ""}")
-                if (options.model !in names) {
-                    System.err.println("[host] Warning: '${options.model}' is not in that list. Pick one on the control page.")
+            val offered = catalog?.list().orEmpty()
+            val combos = offered.filter { it.group == "combo" }.map { it.id }
+            val models = offered.filter { it.group == "model" }.map { it.id }
+            if (combos.isNotEmpty()) {
+                System.err.println("[host] Endpoint offers ${combos.size / 2} combo(s): ${combos.filterNot { it.startsWith("combo/") }.joinToString(", ")}")
+            }
+            if (models.isNotEmpty()) {
+                System.err.println("[host] Endpoint offers ${models.size} model(s): ${models.take(8).joinToString(", ")}${if (models.size > 8) ", ..." else ""}")
+            }
+            if (offered.isNotEmpty() && offered.none { it.id == options.model }) {
+                System.err.println("[host] Warning: '${options.model}' is not among them. Pick one on the control page.")
+                if (combos.isEmpty()) {
+                    // The distinction that costs an afternoon: /v1/models is the OpenAI
+                    // catalogue and never carries a gateway's own groups, so a missing
+                    // combo here means the gateway did not report one, not that the name
+                    // is misspelled.
+                    System.err.println("[host] Note: the endpoint reported no combos at all. If you created one, check it is saved and that its API is at ${options.modelEndpoint?.substringBefore("/v1")}/api/combos.")
                 }
             }
         }

@@ -152,6 +152,9 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   instead, because the gateway is the only thing that knows its own names and a wrong one
   costs a failed run that reports nothing useful. `ModelCatalog` failing is a value, never
   an exception: an endpoint without `/models` is ordinary and must not stop the page.
+  It reads the gateway's own combo API too, because `/v1/models` is the OpenAI-shaped
+  catalogue and never carries a gateway's groups -- a list of a hundred models that
+  confidently omits the one name somebody configured is worse than no list at all.
 - **The control UI binds to loopback, always, whatever `--bind` says.** `--bind` widens the
   agent socket so a phone on the LAN can dial in; the page that starts runs is a different
   thing and carries no password *because* only this machine can reach it. Those two
