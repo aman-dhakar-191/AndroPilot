@@ -54,6 +54,19 @@ startup and warns when `modelId` is not in it, because a gateway that rejects a 
 usually says only that it did, not what would have worked. An endpoint with no `/models` is
 fine -- the box still accepts a name typed by hand, sent through untouched.
 
+**An empty `ANDROPILOT_MODEL_KEY` counts as absent.** The environment variable wins over
+the settings file, but only when it holds something: a variable left empty in a shell, or
+still holding a placeholder from an earlier session, used to beat a perfectly good `apiKey`
+and leave the host talking to the gateway unauthenticated. That does not look like an auth
+problem -- it looks like a missing combo, per the next paragraph. The host now prints which
+source the key came from and how long it is (never the key), so check that line first:
+
+```
+[host] Model: AndroPilot via http://localhost:20128/v1/chat/completions (key from apiKey in the settings file, 38 chars)
+```
+
+To clear a stale one for the session: `Remove-Item Env:ANDROPILOT_MODEL_KEY`.
+
 **The model list is per-credential, and combos are in it.** `GET /v1/models` returns a
 gateway's own groups alongside its models, tagged `"owned_by": "combo"` -- but only to the
 key that owns them. Unauthenticated, the same endpoint answers with a long list of public

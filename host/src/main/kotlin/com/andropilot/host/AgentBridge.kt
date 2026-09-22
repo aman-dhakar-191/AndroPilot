@@ -115,6 +115,17 @@ public class AgentBridge(
     }
 
     private fun session(socket: WebSocketConnection, request: HandshakeRequest) {
+        // A phone that drops and immediately redials arrives while the previous session is
+        // still unwinding: its socket is dead but this thread has not reached the `finally`
+        // that clears the slot yet. Refusing on that is not a safety check, it is a race --
+        // the device is turned away with "another device is already connected" when the
+        // other device is itself, and nothing retries. So give a closing session a moment
+        // to finish before deciding. A genuinely concurrent second phone is still refused,
+        // because its predecessor's socket stays open and the wait expires.
+        val until = System.currentTimeMillis() + HANDOVER_GRACE_MS
+        while (connection?.isOpen == true && System.currentTimeMillis() < until) {
+            Thread.sleep(25)
+        }
         if (connection?.isOpen == true) {
             socket.send(ProtocolJson.encode(Frame.Error(null, "Another device is already connected to this host.")))
             return
@@ -220,6 +231,14 @@ public class AgentBridge(
     }
 
     private companion object {
+        /**
+         * How long a new connection waits for a closing one to release the slot.
+         *
+         * Long enough for a socket already torn down at the peer to be noticed here, short
+         * enough that a real second phone is refused promptly rather than left hanging.
+         */
+        private const val HANDOVER_GRACE_MS = 2_000L
+
         /** Shaped like a real failure so a caller never has to special-case a disconnect. */
         const val DISCONNECTED_RESULT =
             """{"type":"failure","action":{"type":"observe"},"duration_ms":0,""" +

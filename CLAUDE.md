@@ -123,12 +123,14 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   library on the phone and a different one on the desk. Client and server are tested
   against each other over loopback, because a masking or length bug only shows up in real
   bytes.
-- **The phone pings every 25 seconds, and that is not optional.** Between actions the
-  agent socket carries nothing at all, and a consumer router's NAT table or the phone's
-  radio reclaims an idle connection after about a minute. The symptom is a reset and a
-  reconnect loop in the host's log, and a run failing halfway through for a reason the
-  model cannot make sense of. `WebSocketConnection.ping()` existed unused for a while,
-  which is exactly how the gap survived.
+- **The device slot is released for a closing session, not just a closed one.** A phone
+  that drops and immediately redials arrives while the previous session is still unwinding:
+  the socket is dead but the thread has not reached the `finally` that clears the slot. A
+  bare "already connected" check refuses the device on behalf of *itself*, and nothing
+  retries -- which passes every test on an idle machine and fails on a loaded one, because
+  it is a race and not a timeout. A new connection waits out `HANDOVER_GRACE_MS` for the
+  slot; a genuinely concurrent second phone still holds an open socket, so it is still
+  refused.
 - **A connection is held by a foreground service so it cannot be invisible.** While the
   socket is open another machine can read and tap the screen; the ongoing notification, and
   the Disconnect action on it, are the point of putting it there rather than in the
@@ -166,7 +168,11 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   combos at all. So `Catalog.listed` records whether the endpoint would say, and nothing
   may call a typed name invalid without it -- a wrong key produces a failure phrased as an
   unknown *model*, and telling somebody their working combo is misspelled sends them to
-  fix the one thing that was right.
+  fix the one thing that was right. **Blank counts as absent** when reading
+  `ANDROPILOT_MODEL_KEY`: `?:` tests only for null, so an empty or stale environment
+  variable beat the settings file and the host went unauthenticated -- which presents as a
+  missing combo, not as an auth failure. The startup line names the key's source and
+  length, never the key, because it is otherwise the one invisible input.
 - **A model that cannot call tools cannot drive a phone**, and says so by talking until the
   step ceiling rather than failing. `capabilities.tool_calling` is checked at startup and
   at selection. Absent, it is assumed true: refusing on silence would rule out every
