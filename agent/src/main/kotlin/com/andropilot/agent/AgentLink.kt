@@ -123,6 +123,29 @@ public class AgentLink(
 
     private suspend fun serve(socket: WebSocketConnection) {
         socket.send(ProtocolJson.encode(Frame.Hello(PROTOCOL_VERSION, config.deviceName, sdkVersion)))
+
+        // A connection with nothing on it is a connection something will reclaim. Between
+        // actions this socket is completely silent, and a home router's NAT table or the
+        // phone's radio drops an idle one after roughly a minute -- which surfaces as a
+        // reset and a reconnect loop, and as a run failing halfway through for no reason
+        // the model can understand. The ping costs two bytes and the peer answers it
+        // without the application seeing anything.
+        val keepAlive = scope.launch(Dispatchers.IO) {
+            while (true) {
+                delay(KEEP_ALIVE_MS)
+                if (!socket.isOpen) return@launch
+                runCatching { socket.ping() }.onFailure { return@launch }
+            }
+        }
+
+        try {
+            readFrames(socket)
+        } finally {
+            keepAlive.cancel()
+        }
+    }
+
+    private suspend fun readFrames(socket: WebSocketConnection) {
         while (true) {
             scope.ensureActive()
             val text = withContext(Dispatchers.IO) { socket.receive() } ?: return
@@ -198,6 +221,12 @@ public class AgentLink(
 
     private companion object {
         const val INITIAL_BACKOFF_MS = 2_000L
+
+        /**
+         * Comfortably under the minute-ish idle timeout a consumer router applies, and far
+         * too small a cost to tune: one frame every 25 seconds.
+         */
+        const val KEEP_ALIVE_MS = 25_000L
 
         /**
          * Capped at a minute. A phone that woke up on a network where the host is

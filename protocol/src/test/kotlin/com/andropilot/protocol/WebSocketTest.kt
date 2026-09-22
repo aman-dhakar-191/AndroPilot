@@ -123,6 +123,53 @@ class WebSocketTest {
     }
 
     @Test
+    fun `a keep-alive ping is answered and disturbs nothing`() {
+        // The agent sends one of these every 25 seconds so an idle socket is not reclaimed
+        // by a router or the phone's radio. It must be invisible to the message flow: a
+        // pong surfacing as a message, or a ping interrupting a read, would be worse than
+        // the dropped connection it exists to prevent.
+        echoServer().use { server ->
+            client(server).use { connection ->
+                connection.send("before")
+                assertEquals("before", connection.receive())
+
+                repeat(3) { connection.ping() }
+
+                connection.send("after")
+                assertEquals("after", connection.receive())
+            }
+        }
+    }
+
+    @Test
+    fun `a ping arriving mid-conversation is answered by the peer`() {
+        // The server answers a ping itself, inside receive(), without the handler above it
+        // ever being told. Proven by the echo server -- which only ever handles text --
+        // continuing to work while pings cross in both directions.
+        val received = java.util.concurrent.ArrayBlockingQueue<String>(4)
+        WsServer(
+            port = 0,
+            authorize = { true },
+            onConnection = { connection, _ ->
+                while (true) {
+                    val message = connection.receive() ?: break
+                    received.put(message)
+                    connection.ping()
+                    connection.send(message)
+                }
+            },
+        ).use { server ->
+            server.serveInBackground()
+            WsClient.connect("ws://127.0.0.1:${server.port}/agent", readTimeoutMs = 10_000).use { client ->
+                client.ping()
+                client.send("hello")
+                assertEquals("hello", client.receive())
+                assertEquals("hello", received.poll(5, TimeUnit.SECONDS))
+            }
+        }
+    }
+
+    @Test
     fun `frames round-trip through the protocol codec`() {
         val frames = listOf(
             Frame.Hello(PROTOCOL_VERSION, "pixel", "0.1.0"),
