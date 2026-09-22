@@ -123,6 +123,12 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   library on the phone and a different one on the desk. Client and server are tested
   against each other over loopback, because a masking or length bug only shows up in real
   bytes.
+- **The phone pings every 25 seconds, and that is not optional.** Between actions the
+  agent socket carries nothing at all, and a consumer router's NAT table or the phone's
+  radio reclaims an idle connection after about a minute. The symptom is a reset and a
+  reconnect loop in the host's log, and a run failing halfway through for a reason the
+  model cannot make sense of. `WebSocketConnection.ping()` existed unused for a while,
+  which is exactly how the gap survived.
 - **A connection is held by a foreground service so it cannot be invisible.** While the
   socket is open another machine can read and tap the screen; the ongoing notification, and
   the Disconnect action on it, are the point of putting it there rather than in the
