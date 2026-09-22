@@ -1,6 +1,7 @@
 package com.andropilot.host
 
 import com.andropilot.host.agent.AgentLoop
+import com.andropilot.host.agent.ModelCatalog
 import com.andropilot.host.agent.OpenAiCompatibleClient
 import com.andropilot.host.ui.ControlServer
 import com.andropilot.host.ui.RunEventBus
@@ -63,22 +64,39 @@ public fun main(args: Array<String>) {
     System.err.println("[host] ${skills.all().size} app skill(s) loaded from ${options.skillsDirectory}")
 
     val bus = RunEventBus()
-    val modelClient = options.modelEndpoint?.let { endpoint ->
-        // The key comes from the environment by preference: a --model-key lands in the
-        // process list, where anything on the machine can read it.
-        val key = System.getenv("ANDROPILOT_MODEL_KEY") ?: options.modelKey.orEmpty()
-        if (options.modelKey != null) {
-            System.err.println(
-                "[host] Warning: --model-key is visible in the process list. " +
-                    "Prefer ANDROPILOT_MODEL_KEY in the environment.",
-            )
+    // The key comes from the environment by preference: a --model-key lands in the
+    // process list, where anything on the machine can read it.
+    val modelKey = System.getenv("ANDROPILOT_MODEL_KEY") ?: options.modelKey.orEmpty()
+    if (options.modelKey != null) {
+        System.err.println(
+            "[host] Warning: --model-key is visible in the process list. " +
+                "Prefer ANDROPILOT_MODEL_KEY in the environment.",
+        )
+    }
+
+    fun newModelClient(model: String): OpenAiCompatibleClient = OpenAiCompatibleClient(
+        baseUrl = options.modelEndpoint!!,
+        apiKey = modelKey,
+        model = model,
+        temperature = options.temperature,
+    )
+
+    val catalog = options.modelEndpoint?.let { ModelCatalog(it, modelKey) }
+    val modelClient = options.modelEndpoint?.let {
+        newModelClient(options.model).also { client ->
+            System.err.println("[host] Model: ${client.describe}")
+            // The gateway knows which names it answers to and the host does not. Printing
+            // them at startup turns a 400 that says only "unknown model" into a spelling
+            // you can copy -- a gateway's group names are typed into a dashboard, and
+            // nothing here can infer them.
+            val names = catalog?.list().orEmpty()
+            if (names.isNotEmpty()) {
+                System.err.println("[host] Endpoint offers ${names.size} model(s): ${names.take(12).joinToString(", ")}${if (names.size > 12) ", ..." else ""}")
+                if (options.model !in names) {
+                    System.err.println("[host] Warning: '${options.model}' is not in that list. Pick one on the control page.")
+                }
+            }
         }
-        OpenAiCompatibleClient(
-            baseUrl = endpoint,
-            apiKey = key,
-            model = options.model,
-            temperature = options.temperature,
-        ).also { System.err.println("[host] Model: ${it.describe}") }
     }
 
     val ui = options.uiPort?.let { port ->
@@ -86,9 +104,19 @@ public fun main(args: Array<String>) {
             port = port,
             bridge = bridge,
             bus = bus,
-            loopFactory = modelClient?.let {
-                { AgentLoop(bridge, it, skills, maxSteps = options.maxSteps, emit = bus::emit) }
+            loopFactory = if (options.modelEndpoint == null) null else { chosen: String? ->
+                // Built per run so the page can ask for a different model than the one the
+                // host started with, without a restart. The client is a URL and a key.
+                AgentLoop(
+                    bridge,
+                    newModelClient(chosen ?: options.model),
+                    skills,
+                    maxSteps = options.maxSteps,
+                    emit = bus::emit,
+                )
             },
+            modelCatalog = { catalog?.list().orEmpty() },
+            configuredModel = options.modelEndpoint?.let { options.model },
         ).start().also {
             // Loopback regardless of --bind. That flag is there so a phone on the LAN can
             // reach the agent socket; it must not also publish a start-a-run button.

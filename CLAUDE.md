@@ -154,7 +154,10 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   over the flag: an argument is readable by anything that can list processes. `modelId` is
   sent verbatim and is not assumed to name a model -- a gateway may answer to a group name
   instead (an OmniRoute combo, for instance), and a host that validated the string would
-  reject a configuration that works.
+  reject a configuration that works. The control page offers `GET {endpoint}/models`
+  instead, because the gateway is the only thing that knows its own names and a wrong one
+  costs a failed run that reports nothing useful. `ModelCatalog` failing is a value, never
+  an exception: an endpoint without `/models` is ordinary and must not stop the page.
 - **The control UI binds to loopback, always, whatever `--bind` says.** `--bind` widens the
   agent socket so a phone on the LAN can dial in; the page that starts runs is a different
   thing and carries no password *because* only this machine can reach it. Those two

@@ -44,6 +44,29 @@ That builds if it needs to, then prints the two things the phone needs:
 }
 ```
 
+### Picking a model
+
+The control page reads `GET {modelEndpoint}/models` and offers what comes back as a
+type-to-search list, with the host's configured `modelId` pre-filled. Pick one there and it
+is used for that run only; the settings file is unchanged. The host also prints the list at
+startup and warns when `modelId` is not in it, because a gateway that rejects a name
+usually says only that it did, not what would have worked. An endpoint with no `/models` is
+fine -- the box still accepts a name typed by hand, sent through untouched.
+
+**OmniRoute combos.** A persisted combo (Settings -> Combos) is matched on its *exact*
+name, with no fuzzy matching, and `combo/<name>` is the unambiguous spelling. `auto` and
+`auto/*` are a different mechanism that builds their own candidate pool and deliberately do
+**not** use your combos. So an error like
+
+```
+Unable to determine provider for model 'AndroPilot'. Use a provider/model prefix
+(e.g. openai/AndroPilot) or ensure the model is added as a combo entry.
+```
+
+means the gateway did not recognise that string -- try `combo/AndroPilot`, and check the
+name against the list the page now shows. The `openai/` in that message is OmniRoute's own
+example text; the host never adds a prefix to what you configured.
+
 `modelId` is whatever string your gateway answers to. It does not have to be a model:
 an OmniRoute combo is addressed by its own name (`"AndroPilot"`, say) and picks a model
 behind it, so a fallback chain configured there is invisible to the host, which only ever
