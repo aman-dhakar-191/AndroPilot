@@ -67,7 +67,7 @@ public object AgentController : AgentEventListener {
      */
     public val telemetryProblem: StateFlow<String?> get() = _telemetryProblem.asStateFlow()
 
-    public fun reportTelemetryProblem(message: String) {
+    public fun reportTelemetryProblem(message: String?) {
         _telemetryProblem.value = message
     }
 

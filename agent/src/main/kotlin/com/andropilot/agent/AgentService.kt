@@ -47,6 +47,7 @@ public class AgentService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_DISCONNECT -> {
+                (application as? AgentApplication)?.reloadTelemetry(this, AgentSettings(this).load())
                 AgentController.disconnect()
                 removeOverlay()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -59,6 +60,7 @@ public class AgentService : Service() {
                     stopSelf()
                     return START_NOT_STICKY
                 }
+                (application as? AgentApplication)?.reloadTelemetry(this, config)
                 createChannel()
                 setupOverlay()
                 startForeground(NOTIFICATION_ID, notification("Connecting to ${config.endpoint}"))
