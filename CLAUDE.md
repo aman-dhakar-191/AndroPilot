@@ -173,6 +173,17 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   variable beat the settings file and the host went unauthenticated -- which presents as a
   missing combo, not as an auth failure. The startup line names the key's source and
   length, never the key, because it is otherwise the one invisible input.
+- **A timeout is not a disconnection, and the loop must not conflate them.** Both used to
+  reach the model as `not_connected`, so an action the phone was merely slow to answer --
+  a `launch_app` while an app cold-starts -- read as a dead device, and the reasonable next
+  move became hunting for the app rather than observing the screen it had just opened. A
+  timeout says so, and says the action may still have happened.
+- **The installed-app list is produced once per run, and re-read only on `app_unavailable`.**
+  It is the most stable thing about a device and the largest single result the phone
+  returns; re-listing is also the reflex a model reaches for after any failure, which is
+  when it helps least. Caching it in the loop is what makes that true rather than hoping
+  the prompt is obeyed -- and `app_unavailable` is the one answer that genuinely means the
+  list was wrong.
 - **A model that cannot call tools cannot drive a phone**, and says so by talking until the
   step ceiling rather than failing. `capabilities.tool_calling` is checked at startup and
   at selection. Absent, it is assumed true: refusing on silence would rule out every
