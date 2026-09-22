@@ -47,6 +47,15 @@ public data class HostSettings(
     @SerialName("apiKey") val apiKey: String? = null,
     /** Read when `apiKey` is absent, for files written before the field was renamed. */
     @SerialName("modelKey") val legacyModelKey: String? = null,
+    /**
+     * The gateway's admin credential, if it has one distinct from `apiKey`.
+     *
+     * Only ever used to ask the gateway what groups it has, never to run anything. An
+     * OmniRoute management token belongs here: its `/api/combos` refuses the model key
+     * outright, so without this the host cannot list combos and says so rather than
+     * reporting that there are none.
+     */
+    @SerialName("managementKey") val managementKey: String? = null,
     val temperature: Double? = null,
     @SerialName("maxSteps") val maxSteps: Int? = null,
 ) {
@@ -114,6 +123,7 @@ internal fun Options.withDefaultsFrom(settings: HostSettings): Options {
         model = if (model != fallback.model) model
         else settings.modelId ?: settings.legacyModel ?: model,
         modelKey = modelKey ?: settings.apiKey ?: settings.legacyModelKey,
+        managementKey = managementKey ?: settings.managementKey,
         temperature = temperature ?: settings.temperature,
         maxSteps = if (maxSteps != fallback.maxSteps) maxSteps else settings.maxSteps ?: maxSteps,
     )

@@ -148,6 +148,7 @@
   // shows a handful of a hundred entries, cannot be grouped, and gives no way to say that a
   // typed name is not among them -- which is the single most useful thing this can tell you.
   let known = [];
+  let combosListed = false;
   let shown = [];
   let active = -1;
 
@@ -162,9 +163,14 @@
     const combos = known.filter((o) => o.group === 'combo' && !o.id.startsWith('combo/')).length;
     const models = known.filter((o) => o.group === 'model').length;
     const counts = `${models} model${models === 1 ? '' : 's'}`
-      + (combos ? `, ${combos} combo${combos === 1 ? '' : 's'}` : ', no combos');
+      + (combosListed ? `, ${combos} combo${combos === 1 ? '' : 's'}` : '');
     if (value && !known.some((o) => o.id === value)) {
-      note(`\u26a0 \u201c${value}\u201d is not among them (${counts}). The endpoint will refuse it.`);
+      // Only a warning when the whole picture was visible. A gateway's combos sit behind
+      // an admin credential, so without one a working combo name is simply not in this
+      // list -- calling it invalid would be worse than saying nothing.
+      note(combosListed
+        ? `\u26a0 \u201c${value}\u201d is neither a model nor a combo here (${counts}).`
+        : `\u201c${value}\u201d is not a model id (${counts}). Fine if it names a combo \u2014 add a managementKey to list those.`);
     } else {
       note(counts + '. Pick one, or leave it for the host\u2019s configured default.');
     }
@@ -229,6 +235,7 @@
       const res = await fetch('/models');
       const data = await res.json();
       known = data.models || [];
+      combosListed = !!data.combosListed;
       if (!model.value && data.selected) model.value = data.selected;
       describe();
     } catch (e) {

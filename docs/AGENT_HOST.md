@@ -40,7 +40,8 @@ That builds if it needs to, then prints the two things the phone needs:
   "uiPort": 8080,
   "modelEndpoint": "http://localhost:20128/v1",
   "modelId": "a model id, or a gateway combo name",
-  "apiKey": "the api key"
+  "apiKey": "the api key",
+  "managementKey": "optional: admin token, only to list combos"
 }
 ```
 
@@ -52,6 +53,24 @@ is used for that run only; the settings file is unchanged. The host also prints 
 startup and warns when `modelId` is not in it, because a gateway that rejects a name
 usually says only that it did, not what would have worked. An endpoint with no `/models` is
 fine -- the box still accepts a name typed by hand, sent through untouched.
+
+**The combo is invisible until the key is right.** OmniRoute resolves combos per
+authenticated user, so a placeholder or wrong `apiKey` makes a correctly-configured combo
+come back as `Unable to determine provider for model '<name>'` -- an error about the name
+for a problem with the key. Check the key before you doubt the name:
+
+```powershell
+$key = "sk-..."
+curl.exe -s -X POST http://localhost:20128/v1/chat/completions `
+  -H "Content-Type: application/json" -H "Authorization: Bearer $key" `
+  -d '{"model":"AndroPilot","messages":[{"role":"user","content":"hi"}]}'
+```
+
+**Listing combos needs a different credential.** `/api/combos` is an admin surface and
+answers only to OmniRoute's *management token*, rejecting the model key with
+`AUTH_001 Invalid management token`. Put it in `managementKey` if you want combos in the
+picker; without it the host says it could not list them rather than implying you have none,
+and a combo name typed by hand still works.
 
 **A gateway's own groups are not in `/v1/models`.** That endpoint is the OpenAI-shaped
 catalogue and lists models. A combo is OmniRoute's own concept and lives at

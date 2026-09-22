@@ -3,6 +3,7 @@ package com.andropilot.host.ui
 import com.andropilot.host.AgentBridge
 import com.andropilot.host.Skills
 import com.andropilot.host.agent.AgentLoop
+import com.andropilot.host.agent.Catalog
 import com.andropilot.host.agent.ModelOption
 import com.andropilot.host.agent.ModelClient
 import com.andropilot.host.agent.ModelReply
@@ -206,10 +207,13 @@ class ControlServerTest {
                 bus,
                 { chosen -> asked.set(chosen); AgentLoop(bridge, model, Skills(dir), log = {}, emit = bus::emit) },
                 modelCatalog = {
-                    listOf(
-                        ModelOption("AndroPilot", "combo"),
-                        ModelOption("combo/AndroPilot", "combo"),
-                        ModelOption("openai/gpt-5", "model"),
+                    Catalog(
+                        listOf(
+                            ModelOption("AndroPilot", "combo"),
+                            ModelOption("combo/AndroPilot", "combo"),
+                            ModelOption("openai/gpt-5", "model"),
+                        ),
+                        combosListed = true,
                     )
                 },
                 configuredModel = "AndroPilot",
@@ -218,6 +222,7 @@ class ControlServerTest {
                 assertEquals(200, code)
                 assertTrue(body.contains(""""id":"AndroPilot","group":"combo""""), body)
                 assertTrue(body.contains(""""id":"openai/gpt-5","group":"model""""), body)
+                assertTrue(body.contains(""""combosListed":true"""), body)
                 assertTrue(body.contains(""""selected":"AndroPilot""""), body)
 
                 FakeDevice(bridge.port, "t", listOf(tool("observe"))).use {

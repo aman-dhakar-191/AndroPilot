@@ -1,6 +1,7 @@
 package com.andropilot.host
 
 import com.andropilot.host.agent.AgentLoop
+import com.andropilot.host.agent.Catalog
 import com.andropilot.host.agent.ModelCatalog
 import com.andropilot.host.agent.OpenAiCompatibleClient
 import com.andropilot.host.ui.ControlServer
@@ -26,6 +27,11 @@ public fun main(args: Array<String>) {
         return
     }
 
+    // Captured before the settings file is folded in: afterwards a key from the file is
+    // indistinguishable from one typed on the command line, and warning about the process
+    // list for a key that was never on it sends people looking for a problem they do not
+    // have.
+    val keyWasAnArgument = parsed.modelKey != null
     val settingsFile = parsed.configFile ?: HostSettings.defaultPath()
     val options = try {
         parsed.withDefaultsFrom(HostSettings.read(settingsFile))
@@ -67,7 +73,7 @@ public fun main(args: Array<String>) {
     // The key comes from the environment by preference: a --model-key lands in the
     // process list, where anything on the machine can read it.
     val modelKey = System.getenv("ANDROPILOT_MODEL_KEY") ?: options.modelKey.orEmpty()
-    if (options.modelKey != null) {
+    if (keyWasAnArgument) {
         System.err.println(
             "[host] Warning: --model-key is visible in the process list. " +
                 "Prefer ANDROPILOT_MODEL_KEY in the environment.",
@@ -81,7 +87,7 @@ public fun main(args: Array<String>) {
         temperature = options.temperature,
     )
 
-    val catalog = options.modelEndpoint?.let { ModelCatalog(it, modelKey) }
+    val catalog = options.modelEndpoint?.let { ModelCatalog(it, modelKey, options.managementKey) }
     val modelClient = options.modelEndpoint?.let {
         newModelClient(options.model).also { client ->
             System.err.println("[host] Model: ${client.describe}")
@@ -89,23 +95,24 @@ public fun main(args: Array<String>) {
             // them at startup turns a 400 that says only "unknown model" into a spelling
             // you can copy -- a gateway's group names are typed into a dashboard, and
             // nothing here can infer them.
-            val offered = catalog?.list().orEmpty()
-            val combos = offered.filter { it.group == "combo" }.map { it.id }
-            val models = offered.filter { it.group == "model" }.map { it.id }
+            val offered = catalog?.list()
+            val combos = offered?.options.orEmpty().filter { it.group == "combo" && !it.id.startsWith("combo/") }
+            val models = offered?.options.orEmpty().filter { it.group == "model" }
             if (combos.isNotEmpty()) {
-                System.err.println("[host] Endpoint offers ${combos.size / 2} combo(s): ${combos.filterNot { it.startsWith("combo/") }.joinToString(", ")}")
+                System.err.println("[host] Endpoint offers ${combos.size} combo(s): ${combos.joinToString(", ") { it.id }}")
             }
             if (models.isNotEmpty()) {
-                System.err.println("[host] Endpoint offers ${models.size} model(s): ${models.take(8).joinToString(", ")}${if (models.size > 8) ", ..." else ""}")
+                System.err.println("[host] Endpoint offers ${models.size} model(s): ${models.take(8).joinToString(", ") { it.id }}${if (models.size > 8) ", ..." else ""}")
             }
-            if (offered.isNotEmpty() && offered.none { it.id == options.model }) {
-                System.err.println("[host] Warning: '${options.model}' is not among them. Pick one on the control page.")
-                if (combos.isEmpty()) {
-                    // The distinction that costs an afternoon: /v1/models is the OpenAI
-                    // catalogue and never carries a gateway's own groups, so a missing
-                    // combo here means the gateway did not report one, not that the name
-                    // is misspelled.
-                    System.err.println("[host] Note: the endpoint reported no combos at all. If you created one, check it is saved and that its API is at ${options.modelEndpoint?.substringBefore("/v1")}/api/combos.")
+            // Only ever a warning when the host could see the whole picture. A gateway's
+            // combos sit behind an admin credential, so without one a perfectly good combo
+            // name is simply invisible here -- and saying it is wrong would be worse than
+            // saying nothing.
+            if (models.isNotEmpty() && offered?.options.orEmpty().none { it.id == options.model }) {
+                if (offered?.combosListed == true) {
+                    System.err.println("[host] Warning: '${options.model}' is neither a model nor a combo here. Pick one on the control page.")
+                } else {
+                    System.err.println("[host] Note: '${options.model}' is not a model id. That is fine if it names a combo -- combos need a managementKey in settings.json to be listed.")
                 }
             }
         }
@@ -127,7 +134,7 @@ public fun main(args: Array<String>) {
                     emit = bus::emit,
                 )
             },
-            modelCatalog = { catalog?.list().orEmpty() },
+            modelCatalog = { catalog?.list() ?: Catalog(emptyList(), combosListed = false) },
             configuredModel = options.modelEndpoint?.let { options.model },
         ).start().also {
             // Loopback regardless of --bind. That flag is there so a phone on the LAN can
@@ -216,6 +223,8 @@ internal data class Options(
     val modelEndpoint: String? = null,
     val model: String = "gpt-4o-mini",
     val modelKey: String? = null,
+    /** Only for asking the gateway what it offers; never used to run anything. */
+    val managementKey: String? = null,
     val temperature: Double? = null,
     val goal: String? = null,
     val maxSteps: Int = 40,
@@ -240,6 +249,7 @@ internal fun parse(args: Array<String>): Options {
             "--model-endpoint" -> options = options.copy(modelEndpoint = args[++i])
             "--model" -> options = options.copy(model = args[++i])
             "--model-key" -> options = options.copy(modelKey = args[++i])
+            "--management-key" -> options = options.copy(managementKey = args[++i])
             "--temperature" -> options = options.copy(temperature = args[++i].toDouble())
             "--goal" -> options = options.copy(goal = args[++i])
             "--max-steps" -> options = options.copy(maxSteps = args[++i].toInt())

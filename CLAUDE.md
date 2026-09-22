@@ -154,7 +154,13 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   an exception: an endpoint without `/models` is ordinary and must not stop the page.
   It reads the gateway's own combo API too, because `/v1/models` is the OpenAI-shaped
   catalogue and never carries a gateway's groups -- a list of a hundred models that
-  confidently omits the one name somebody configured is worse than no list at all.
+  confidently omits the one name somebody configured is worse than no list at all. That
+  API is an admin surface behind its own credential (`managementKey`, never the model key),
+  so a silence there means "not allowed to look" and not "there are none" -- which is why
+  `Catalog.combosListed` exists. Nothing may call a typed name invalid without it: a
+  gateway resolves combos per authenticated user, so the failure a wrong key produces is
+  phrased as an unknown *model*, and telling somebody their working combo is misspelled
+  sends them to fix the one thing that was right.
 - **The control UI binds to loopback, always, whatever `--bind` says.** `--bind` widens the
   agent socket so a phone on the LAN can dial in; the page that starts runs is a different
   thing and carries no password *because* only this machine can reach it. Those two

@@ -9,6 +9,19 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.net.HttpURLConnection
 import java.net.URI
 
+/**
+ * What came back, and -- as much as it matters -- what did not.
+ *
+ * `combosListed` is the distinction that decides whether the page may call a typed name
+ * wrong. A gateway's combo API is an admin surface behind its own credential, so "no
+ * combos" usually means "not allowed to look", and a picker that treated a silence as an
+ * empty set would tell somebody their working configuration is invalid.
+ */
+public data class Catalog(
+    val options: List<ModelOption>,
+    val combosListed: Boolean,
+)
+
 /** One thing the endpoint will answer to, and where the host learned about it. */
 public data class ModelOption(
     val id: String,
@@ -32,30 +45,43 @@ public data class ModelOption(
  * Failure is a value, not an exception: an endpoint that implements neither is common and
  * is not a reason for the page to break. The caller falls back to typing a name.
  */
-public class ModelCatalog(baseUrl: String, private val apiKey: String) {
+public class ModelCatalog(
+    baseUrl: String,
+    private val apiKey: String,
+    /**
+     * The gateway's admin credential, if there is one.
+     *
+     * Separate from the model key because they are separate things: OmniRoute answers
+     * `/api/combos` only to a management token and rejects the key that drives
+     * `/chat/completions` perfectly well. Optional -- without it the host simply cannot
+     * enumerate combos, which it then says rather than implying there are none.
+     */
+    private val managementKey: String? = null,
+) {
 
     private val base: String = baseUrl.trimEnd('/').removeSuffix("/chat/completions")
 
     /** The server root, since a gateway's own API sits beside `/v1` rather than under it. */
     private val root: String = base.removeSuffix("/v1").removeSuffix("/openai").trimEnd('/')
 
-    /** Everything the endpoint offers, models first, or empty if it would not say. */
-    public fun list(): List<ModelOption> {
-        val models = parseModels(get("$base/models")).map { ModelOption(it, "model") }
+    /** Everything the endpoint will admit to, models first. */
+    public fun list(): Catalog {
+        val models = parseModels(get("$base/models", apiKey)).map { ModelOption(it, "model") }
+        val comboBody = managementKey?.takeIf { it.isNotBlank() }?.let { get("$root/api/combos", it) }
         // Both spellings, because either resolves and a bare name can be shadowed by a
         // model id of the same name -- the prefixed one never is.
-        val combos = parseCombos(get("$root/api/combos")).flatMap {
+        val combos = parseCombos(comboBody).flatMap {
             listOf(ModelOption(it, "combo"), ModelOption("combo/$it", "combo"))
         }
-        return (combos + models).distinctBy { it.id }
+        return Catalog((combos + models).distinctBy { it.id }, combosListed = comboBody != null)
     }
 
-    private fun get(url: String): String? = runCatching {
+    private fun get(url: String, key: String): String? = runCatching {
         val connection = (URI(url).toURL().openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 5_000
             readTimeout = 15_000
-            if (apiKey.isNotBlank()) setRequestProperty("Authorization", "Bearer $apiKey")
+            if (key.isNotBlank()) setRequestProperty("Authorization", "Bearer $key")
         }
         try {
             if (connection.responseCode !in 200..299) null
