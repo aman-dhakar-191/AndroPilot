@@ -68,6 +68,12 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   listener are just listeners. Do not add a second parallel mechanism -- there were four
   before this was unified. Config-registered listeners are synchronous and never dropped; the
   flow may drop.
+- **A settings field must not be able to stop the app starting.** `TelemetrySink.http`
+  rejects an endpoint it will not post to, and that rejection used to escape
+  `Application.onCreate` -- so a mistyped host crashed the agent on every launch, with the
+  app unable to open and the field therefore uncorrectable short of wiping its data.
+  Anything optional that is constructed at startup from user input gets wrapped, and the
+  failure is shown on the screen instead.
 - **Observability is never telemetry, and telemetry is never in the SDK.** Sinks write
   where the host points them and nowhere else. The SDK has no network code; do not add any.
   `:andropilot-telemetry` is the one module that sends anything off a device, it lives

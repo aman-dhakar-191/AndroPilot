@@ -49,6 +49,20 @@ public object AgentController : AgentEventListener {
      */
     public val activity: StateFlow<List<ActivityEntry>> get() = _activity.asStateFlow()
 
+    private val _telemetryProblem = MutableStateFlow<String?>(null)
+
+    /**
+     * Why telemetry is not running, when it was configured but refused.
+     *
+     * Kept rather than thrown. A rejected endpoint is a mistake in a settings field, and
+     * failing to start the whole app over one leaves no way to correct it.
+     */
+    public val telemetryProblem: StateFlow<String?> get() = _telemetryProblem.asStateFlow()
+
+    public fun reportTelemetryProblem(message: String) {
+        _telemetryProblem.value = message
+    }
+
     private val _pending = MutableStateFlow<List<PendingConfirmation>>(emptyList())
 
     /**
