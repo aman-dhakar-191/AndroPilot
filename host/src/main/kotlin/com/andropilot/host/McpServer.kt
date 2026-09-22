@@ -172,22 +172,6 @@ public class McpServer(
         return text(if (notes == null) resultPayload else resultPayload + "\n\n--- app notes ---\n" + notes)
     }
 
-    /**
-     * Finds the package a result describes, so the matching app notes can ride along.
-     *
-     * Parsed generically rather than through the SDK's model: the host deliberately does not
-     * depend on core, and a result it cannot fully parse must still be forwarded intact.
-     */
-    private fun packageOf(payload: String): String? = runCatching {
-        fun search(element: JsonElement): String? = when (element) {
-            is JsonObject -> element["package_name"]?.jsonPrimitive?.contentOrNull
-                ?: element.values.firstNotNullOfOrNull(::search)
-            is kotlinx.serialization.json.JsonArray -> element.firstNotNullOfOrNull(::search)
-            else -> null
-        }
-        search(json.parseToJsonElement(payload))
-    }.getOrNull()
-
     private fun resourcesList(): JsonObject = buildJsonObject {
         putJsonArray("resources") {
             for (skill in skills.all()) {

@@ -2,6 +2,7 @@ package com.andropilot.host.agent
 
 import com.andropilot.host.AgentBridge
 import com.andropilot.host.Skills
+import com.andropilot.host.packageOf
 import com.andropilot.host.ui.RunEvent
 import kotlinx.serialization.json.Json
 
@@ -47,6 +48,9 @@ public class AgentLoop(
 
     @Volatile
     private var stopped = false
+
+    /** Apps whose notes this run has already delivered. */
+    private val delivered = mutableSetOf<String>()
 
     /**
      * Asks the run to stop after the step in flight.
@@ -136,6 +140,7 @@ public class AgentLoop(
                     }
                     (result?.forModel ?: "FAILED [not_connected] The device could not be reached.")
                         .also { emit(RunEvent.Result(step, call.name, it, !it.startsWith("FAILED"))) }
+                        .let { summary -> summary + notesFor(result?.payload) }
                 }
                 if (!known) emit(RunEvent.Result(step, call.name, content, ok = false))
                 turns += Turn.ToolResult(call.id, call.name, content)
@@ -155,6 +160,24 @@ public class AgentLoop(
      * when there are any, because that knowledge belongs in front of the model rather than
      * being rediscovered.
      */
+    /**
+     * The notes for whatever app a result came from, the first time it is seen.
+     *
+     * Attached to the result rather than the prompt because that is when they are relevant
+     * and when the model is already reading. Once per run per app: repeating them every
+     * turn would crowd out the screen itself, which is the thing that actually decides the
+     * next action.
+     */
+    private fun notesFor(payload: String?): String {
+        val pkg = payload?.let(::packageOf) ?: return ""
+        val skill = skills.forPackage(pkg)
+        val key = if (skill != null) pkg else UNKNOWN_KEY
+        if (!delivered.add(key)) return ""
+        val notes = (skill ?: skills.unknown())?.notes ?: return ""
+        val heading = if (skill != null) "notes for $pkg" else "notes for an app without specific notes"
+        return "\n\n--- $heading ---\n$notes"
+    }
+
     private fun systemPrompt(): String = buildString {
         append(
             """
@@ -184,10 +207,21 @@ public class AgentLoop(
             append("\n\nGeneral Android operating guidance:\n")
             append(global.notes).append('\n')
         }
-        val notes = skills.all()
-        if (notes.isNotEmpty()) {
-            append("\n\nNotes on specific apps:\n")
-            notes.forEach { append("\n## ").append(it.packageName).append('\n').append(it.notes).append('\n') }
+        // An index, not the notes themselves. Holding every app's notes in context on every
+        // turn costs the whole library's worth of tokens to help with the one app a run
+        // actually opens, and grows worse with each skill written -- which would make a
+        // useful library the thing that ruins the prompt. The notes for an app arrive with
+        // the first result from it instead.
+        val index = skills.index()
+        if (index.isNotEmpty()) {
+            append("\n\nNotes have been written for these apps, and will be given to you the ")
+            append("first time each one appears on screen. Do not ask for them:\n")
+            index.forEach { append("- ").append(it).append('\n') }
         }
+    }
+
+    private companion object {
+        /** One key for every app without notes: the playbook is the same for all of them. */
+        const val UNKNOWN_KEY = "_unknown"
     }
 }

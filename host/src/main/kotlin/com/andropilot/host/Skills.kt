@@ -35,7 +35,7 @@ public class Skills(private val directory: File) {
         if (!directory.isDirectory) return emptyList()
         return directory.listFiles()
             ?.filter { it.isDirectory }
-            ?.filter { it.name != GLOBAL_NAME }
+            ?.filterNot { it.name == GLOBAL_NAME || it.name == UNKNOWN_NAME }
             ?.mapNotNull { dir ->
                 val file = File(dir, FILE_NAME).takeIf { it.isFile } ?: return@mapNotNull null
                 val notes = runCatching { file.readText() }.getOrNull()?.takeIf { it.isNotBlank() }
@@ -46,8 +46,31 @@ public class Skills(private val directory: File) {
             ?: emptyList()
     }
 
-            /** General Android guidance, injected before app-specific notes. */
-            public fun global(): Skill? = read(File(directory, GLOBAL_NAME))
+    /** General Android guidance, injected before app-specific notes. */
+    public fun global(): Skill? = read(File(directory, GLOBAL_NAME))
+
+    /**
+     * The playbook for an app nothing was written about.
+     *
+     * A library of app notes is always incomplete -- a phone has a hundred apps and
+     * somebody writes notes for a dozen. Without this the uncovered case is the *common*
+     * case and gets no help at all, which is backwards.
+     */
+    public fun unknown(): Skill? = read(File(directory, UNKNOWN_NAME))
+
+    /**
+     * One line per app, for the system prompt.
+     *
+     * The full notes are far too large to hold every app's in context on every turn, and
+     * almost all of them are about apps a given run never opens. What the model needs up
+     * front is only that notes exist and for which package, so it can recognise the name
+     * when the notes arrive.
+     */
+    public fun index(): List<String> = all().map { skill ->
+        val title = skill.notes.lineSequence()
+            .firstOrNull { it.startsWith("# ") }?.removePrefix("# ")?.trim()
+        if (title.isNullOrBlank()) skill.packageName else "${skill.packageName} -- $title"
+    }
 
     public fun forPackage(packageName: String?): Skill? {
         if (packageName.isNullOrBlank()) return null
@@ -64,5 +87,6 @@ public class Skills(private val directory: File) {
     private companion object {
         const val FILE_NAME = "SKILL.md"
         const val GLOBAL_NAME = "_global"
+        const val UNKNOWN_NAME = "_unknown"
     }
 }
