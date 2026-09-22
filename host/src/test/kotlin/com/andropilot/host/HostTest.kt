@@ -275,6 +275,26 @@ class HostTest {
     }
 
     @Test
+    fun `a second device that is genuinely there is still refused`() {
+        // The slot is released for a session that is closing, which is a reconnect. It must
+        // not be released for one that is open, or two phones would take turns owning the
+        // host and every action would land on whichever connected last.
+        bridge().use { bridge ->
+            FakeDevice(bridge.port, "secret", listOf(tool("observe"))) { """{"type":"success"}""" }.use {
+                assertTrue(bridge.awaitDevice(5_000))
+
+                FakeDevice(bridge.port, "secret", listOf(tool("observe"), tool("click"))) {
+                    """{"type":"success"}"""
+                }.use {
+                    // Past the handover grace, so a slot that was going to be yielded has been.
+                    Thread.sleep(2_500)
+                    assertEquals(1, bridge.tools().size, "the second device took a live slot")
+                }
+            }
+        }
+    }
+
+    @Test
     fun `answers a caller waiting on an action when the device vanishes`() {
         // Otherwise the call sits until its timeout -- two minutes of a run looking hung
         // for a device that is already gone.

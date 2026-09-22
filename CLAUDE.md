@@ -123,6 +123,14 @@ Three build decisions look like bugs and are not. Do not "fix" them:
   library on the phone and a different one on the desk. Client and server are tested
   against each other over loopback, because a masking or length bug only shows up in real
   bytes.
+- **The device slot is released for a closing session, not just a closed one.** A phone
+  that drops and immediately redials arrives while the previous session is still unwinding:
+  the socket is dead but the thread has not reached the `finally` that clears the slot. A
+  bare "already connected" check refuses the device on behalf of *itself*, and nothing
+  retries -- which passes every test on an idle machine and fails on a loaded one, because
+  it is a race and not a timeout. A new connection waits out `HANDOVER_GRACE_MS` for the
+  slot; a genuinely concurrent second phone still holds an open socket, so it is still
+  refused.
 - **A connection is held by a foreground service so it cannot be invisible.** While the
   socket is open another machine can read and tap the screen; the ongoing notification, and
   the Disconnect action on it, are the point of putting it there rather than in the
