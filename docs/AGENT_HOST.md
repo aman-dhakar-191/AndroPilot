@@ -81,6 +81,27 @@ different URL.
 Leave `--goal` off for an interactive prompt: type a task, watch it run, type another,
 without dropping the connection to the phone.
 
+### Or watch it in a browser
+
+```bash
+andropilot-host --token "$TOKEN" --skills ./skills \
+    --model-endpoint https://openrouter.ai/api/v1 --model vendor/model-name \
+    --ui-port 8080
+```
+
+`http://127.0.0.1:8080` gives you a goal box, the model's reasoning and every action as
+they happen, and a Stop button. It is the only place you can watch a run: while one is in
+progress the model is driving other apps, so the phone's own screen is not available to
+look at.
+
+**The page is always bound to loopback, whatever `--bind` says.** `--bind` exists so a
+phone on the LAN can reach the agent socket. It must not also put a start-a-run button on
+the network, and the page carries no password precisely because nothing but this machine
+can reach it -- those two decisions stay joined.
+
+Stop asks the run to end after the step in flight. An action already sent to the phone is
+going to happen; nothing further is asked of the model or the device.
+
 **Where the model runs is a privacy decision, and the SDK cannot make it for you.** A hosted
 router means the screens the agent observes are sent to whoever it routes to. That is fine
 for turning Wi-Fi on and a poor idea for anything with a balance or a message on it. The

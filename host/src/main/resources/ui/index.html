@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AndroPilot</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfbfd; --panel: #fff; --line: #e3e3ea; --text: #1a1a1f;
+    --dim: #6b6b76; --accent: #5b4bd6; --ok: #1d7a44; --bad: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#131317; --panel:#1b1b21; --line:#2d2d36; --text:#e9e9ee;
+            --dim:#9a9aa6; --accent:#9d8dfb; --ok:#5ed68f; --bad:#ff8a80; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 20px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--dim); font-size: 13px; margin: 0 0 20px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dim); flex: none; }
+  .dot.on { background: var(--ok); }
+  input[type=text] {
+    flex: 1 1 260px; min-width: 0; padding: 10px 12px; font: inherit;
+    color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 9px;
+  }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button {
+    padding: 10px 16px; font: inherit; font-weight: 550; cursor: pointer;
+    border-radius: 9px; border: 1px solid transparent; background: var(--accent); color: #fff;
+  }
+  button.ghost { background: transparent; color: var(--text); border-color: var(--line); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  #log { margin-top: 18px; display: flex; flex-direction: column; gap: 8px; }
+  .ev { border: 1px solid var(--line); border-left-width: 3px; border-radius: 10px;
+        padding: 10px 12px; background: var(--panel); }
+  .ev .k { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--dim); }
+  .ev pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word;
+            font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .intent { border-left-color: var(--accent); }
+  .action { border-left-color: var(--dim); }
+  .result { border-left-color: var(--ok); }
+  .result.bad { border-left-color: var(--bad); }
+  .finished { border-left-color: var(--ok); }
+  .failed, .halted { border-left-color: var(--bad); }
+  .empty { color: var(--dim); font-size: 13px; padding: 24px 0; text-align: center; }
+</style>
+</head>
+<body>
+<main>
+  <h1>AndroPilot</h1>
+  <p class="sub">Give the phone something to do, and watch it work.</p>
+
+  <div class="card">
+    <div class="row" style="margin-bottom:12px">
+      <span class="dot" id="dot"></span>
+      <span id="device">Checking for a device…</span>
+    </div>
+    <div class="row">
+      <input type="text" id="goal" placeholder="Turn on Wi-Fi" autocomplete="off">
+      <button id="start">Run</button>
+      <button id="stop" class="ghost" disabled>Stop</button>
+    </div>
+  </div>
+
+  <div id="log"><p class="empty">Nothing yet.</p></div>
+</main>
+
+<script>
+  const log = document.getElementById('log');
+  const goal = document.getElementById('goal');
+  const start = document.getElementById('start');
+  const stop = document.getElementById('stop');
+  const dot = document.getElementById('dot');
+  const device = document.getElementById('device');
+  let running = false;
+
+  function setRunning(on) {
+    running = on;
+    start.disabled = on;
+    stop.disabled = !on;
+    start.textContent = on ? 'Running…' : 'Run';
+  }
+
+  function add(kind, label, body, extra) {
+    if (log.firstElementChild && log.firstElementChild.className === 'empty') log.innerHTML = '';
+    const el = document.createElement('div');
+    el.className = 'ev ' + kind + (extra || '');
+    const k = document.createElement('div');
+    k.className = 'k';
+    k.textContent = label;
+    el.appendChild(k);
+    if (body) {
+      const pre = document.createElement('pre');
+      pre.textContent = body;
+      el.appendChild(pre);
+    }
+    log.appendChild(el);
+    el.scrollIntoView({ block: 'nearest' });
+  }
+
+  const stream = new EventSource('/events');
+  stream.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+    switch (ev.type) {
+      case 'device':
+        dot.className = 'dot' + (ev.connected ? ' on' : '');
+        device.textContent = ev.connected
+          ? `${ev.name || 'Device'} connected · ${ev.tools} tools`
+          : 'No device connected. Open the AndroPilot agent app and connect it.';
+        break;
+      case 'started':
+        setRunning(true);
+        add('intent', 'goal', ev.goal + '\n' + ev.model);
+        break;
+      case 'intent': add('intent', 'step ' + ev.step, ev.text); break;
+      case 'action': add('action', ev.name, ev.payload); break;
+      case 'result': add('result', ev.name + ' result', ev.summary, ev.ok ? '' : ' bad'); break;
+      case 'finished':
+        setRunning(false);
+        add('finished', `done · ${ev.steps} steps · ${ev.actions} actions`, ev.message || '');
+        break;
+      case 'halted':
+        setRunning(false);
+        add('halted', `stopped · ${ev.actions} actions`, ev.reason);
+        break;
+      case 'failed':
+        setRunning(false);
+        add('failed', 'failed', ev.message);
+        break;
+    }
+  };
+
+  async function post(path, body) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      add('failed', 'refused', data.error || ('HTTP ' + res.status));
+      setRunning(false);
+    }
+  }
+
+  start.onclick = () => {
+    const text = goal.value.trim();
+    if (!text) return;
+    setRunning(true);
+    post('/run', { goal: text });
+  };
+  stop.onclick = () => post('/stop');
+  goal.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !running) start.click(); });
+</script>
+</body>
+</html>

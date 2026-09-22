@@ -2,6 +2,7 @@ package com.andropilot.host.agent
 
 import com.andropilot.host.AgentBridge
 import com.andropilot.host.Skills
+import com.andropilot.host.ui.RunEvent
 import kotlinx.serialization.json.Json
 
 /** How a run ended. */
@@ -38,9 +39,25 @@ public class AgentLoop(
      */
     private val maxSteps: Int = 40,
     private val log: (String) -> Unit = { System.err.println(it) },
+    /** Where a watching UI gets its live view. Silent by default, for the plain CLI. */
+    private val emit: (RunEvent) -> Unit = {},
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
+
+    @Volatile
+    private var stopped = false
+
+    /**
+     * Asks the run to stop after the step in flight.
+     *
+     * Not an interrupt: an action already dispatched to the phone is going to happen
+     * whatever this flag says, and pretending otherwise would make "stop" a lie. What it
+     * guarantees is that nothing further is asked of the model or the device.
+     */
+    public fun stop() {
+        stopped = true
+    }
 
     public fun run(goal: String): RunOutcome {
         val tools = bridge.tools()
@@ -55,10 +72,22 @@ public class AgentLoop(
             Turn.User(goal),
         )
         bridge.note("Run started: $goal", mapOf("model" to model.describe))
+        emit(RunEvent.Started(goal, model.describe, tools.size))
 
         var actions = 0
         for (step in 1..maxSteps) {
-            val reply = model.complete(turns, tools)
+            if (stopped) {
+                bridge.note("Run stopped by the operator.", mapOf("outcome" to "stopped"))
+                emit(RunEvent.Halted("Stopped.", step - 1, actions))
+                return RunOutcome(finished = false, message = null, steps = step - 1, actions = actions)
+            }
+
+            val reply = try {
+                model.complete(turns, tools)
+            } catch (e: Exception) {
+                emit(RunEvent.Failed(e.message ?: e::class.java.simpleName))
+                throw e
+            }
 
             // A reply with no tool calls is the model saying it is done, and its text is a
             // conclusion rather than a plan. Recorded under a different kind so a later
@@ -70,6 +99,7 @@ public class AgentLoop(
                     bridge.note(it, mapOf("step" to step.toString(), "kind" to "conclusion"))
                 }
                 bridge.note("Run finished after $actions action(s).", mapOf("outcome" to "finished"))
+                emit(RunEvent.Finished(reply.text, step, actions))
                 return RunOutcome(finished = true, message = reply.text, steps = step, actions = actions)
             }
 
@@ -81,6 +111,7 @@ public class AgentLoop(
             reply.text?.let {
                 log("[model] $it")
                 bridge.note(it, mapOf("step" to step.toString(), "kind" to "intent"))
+                emit(RunEvent.Intent(step, it))
             }
 
             turns += Turn.Assistant(reply.text, reply.toolCalls)
@@ -97,19 +128,22 @@ public class AgentLoop(
                     actions++
                     val payload = actionPayload(call.name, call.argumentsJson, json)
                     log("[action] ${call.name} $payload")
+                    emit(RunEvent.Action(step, call.name, payload))
                     val result = try {
                         bridge.execute(payload)
                     } catch (e: Exception) {
                         null
                     }
-                    result?.forModel
-                        ?: "FAILED [not_connected] The device could not be reached."
+                    (result?.forModel ?: "FAILED [not_connected] The device could not be reached.")
+                        .also { emit(RunEvent.Result(step, call.name, it, !it.startsWith("FAILED"))) }
                 }
+                if (!known) emit(RunEvent.Result(step, call.name, content, ok = false))
                 turns += Turn.ToolResult(call.id, call.name, content)
             }
         }
 
         bridge.note("Run stopped at the $maxSteps step limit.", mapOf("outcome" to "step_limit"))
+        emit(RunEvent.Halted("Reached the $maxSteps step limit.", maxSteps, actions))
         return RunOutcome(finished = false, message = null, steps = maxSteps, actions = actions)
     }
 
