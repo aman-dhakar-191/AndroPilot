@@ -42,6 +42,9 @@ public object AgentController : AgentEventListener {
     private val _working = MutableStateFlow(false)
     public val working: StateFlow<Boolean> get() = _working.asStateFlow()
 
+    private val _workingText = MutableStateFlow("AndroPilot working")
+    public val workingText: StateFlow<String> get() = _workingText.asStateFlow()
+
     /**
      * What the agent has been doing, newest first.
      *
@@ -87,10 +90,16 @@ public object AgentController : AgentEventListener {
     override fun onEvent(event: AgentEvent) {
         link?.onEvent(event)
         when (event) {
-            is AgentEvent.ActionStarted -> _working.value = true
+            is AgentEvent.ActionStarted -> {
+                _workingText.value = "AndroPilot acting"
+                _working.value = true
+            }
             is AgentEvent.ActionFinished -> _working.value = false
             is AgentEvent.Note -> when (event.data["kind"]) {
-                "intent" -> _working.value = true
+                "intent" -> {
+                    _workingText.value = event.message.take(80)
+                    _working.value = true
+                }
                 "conclusion" -> _working.value = false
                 else -> Unit
             }
@@ -131,6 +140,7 @@ public object AgentController : AgentEventListener {
         link = null
         _state.value = LinkState.Idle
         _working.value = false
+        _workingText.value = "AndroPilot working"
     }
 
     /**

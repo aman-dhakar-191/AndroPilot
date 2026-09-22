@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
@@ -76,14 +77,16 @@ public class AgentService : Service() {
             }
         }
         overlayWatcher = scope.launch {
-            AgentController.working.collect { working ->
+            AgentController.working.combine(AgentController.workingText) { working, text -> working to text }
+                .collect { (working, text) ->
                 if (working) showOverlay() else removeOverlay()
+                overlay?.text = text
             }
         }
     }
 
     private fun setupOverlay() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || !Settings.canDrawOverlays(this)) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(this)) return
         if (overlay != null) return
         overlayManager = getSystemService(WindowManager::class.java)
         overlay = TextView(this).apply {
@@ -99,6 +102,7 @@ public class AgentService : Service() {
     }
 
     private fun showOverlay() {
+        setupOverlay()
         val view = overlay ?: return
         if (view.isAttachedToWindow) return
         val params = WindowManager.LayoutParams(

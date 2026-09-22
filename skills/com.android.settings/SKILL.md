@@ -24,5 +24,9 @@ An example, and a real one — these are the things an agent gets wrong on the S
 - If Settings search or navigation does not respond, return Home and open Quick Settings by
   swiping down from the top edge. Find the **Do Not Disturb** or **Modes** tile, swipe across
   tile pages if needed, toggle it, and observe again to verify that the tile reports enabled.
+- For the notification shade, prefer the global `press_key` action with `notifications`, then
+  observe the `com.android.systemui` screen. For the expanded POCO control centre, use
+  `press_key` with `quick_settings`; report tile state without clicking a tile unless the goal
+  explicitly asks for a change. Use `back` to close either panel and return to the prior app.
 - Many screens are longer than they look. An element that is not found may simply be below
   the fold: `scroll_until` before concluding it is absent.
